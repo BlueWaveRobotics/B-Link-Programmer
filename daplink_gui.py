@@ -14,6 +14,7 @@ import serial
 import serial.tools.list_ports
 from pyocd.core.helpers import ConnectHelper
 from pyocd.flash.file_programmer import FileProgrammer
+from pyocd.flash.eraser import FlashEraser
 
 # Configure Python logging
 logging.basicConfig(level=logging.INFO)
@@ -26,7 +27,7 @@ logger = logging.getLogger("DAPLinkSuite")
 class FlashWorker(QObject):
     """
     Background worker for executing pyOCD flash programming and diagnostics
-    in a dedicated QThread to prevent GUI freezing.
+    in a dedicated QThread to prevent GUI freezing (Target-Agnostic / Auto-Detect).
     """
     log_signal = Signal(str)
     progress_signal = Signal(int)
@@ -35,16 +36,97 @@ class FlashWorker(QObject):
     def __init__(
         self,
         file_path: str,
-        target_type: str = "stm32f103c8",
         clock_freq: int = 100000,
         connect_mode: str = "under-reset"
     ):
         super().__init__()
         self.file_path = file_path
-        self.target_type = target_type
         self.clock_freq = clock_freq
         self.connect_mode = connect_mode
         self._is_running = True
+
+    @Slot()
+    def run_chip_erase(self) -> None:
+        """
+        Executes a robust Full Chip Erase on ARM Cortex-M targets,
+        preventing HardFault (IPSR=3) by explicitly halting the core first.
+        """
+        session = None
+        try:
+            self.log_signal.emit("[INFO] Starting Full Chip Erase sequence...")
+            self.log_signal.emit(
+                f"[INFO] Connecting to target via auto-detection @ {self.clock_freq//1000} kHz...")
+
+            options = {
+                'connect_mode': self.connect_mode,
+                'frequency': self.clock_freq,
+                'target_override': None,
+                'reset_type': 'hw' if self.connect_mode == 'under-reset' else 'sw',
+                'resume_on_disconnect': False
+            }
+
+            try:
+                session = ConnectHelper.session_with_chosen_probe(
+                    options=options)
+                session.open()
+            except Exception as e:
+                err_lower = str(e).lower()
+                if "not recognized" in err_lower or "target" in err_lower:
+                    self.log_signal.emit(
+                        "[WARNING] Specific target pack not found. Using generic 'cortex_m' mode...")
+                    options['target_override'] = "cortex_m"
+                    session = ConnectHelper.session_with_chosen_probe(
+                        options=options)
+                    session.open()
+                else:
+                    raise e
+
+            target = session.board.target
+            self.log_signal.emit(
+                f"[INFO] SWD Connection established! Detected MCU: {target.part_number.upper()}")
+
+            self.log_signal.emit(
+                "[INFO] Halting core and clearing active interrupts (preventing IPSR=3)...")
+            target.reset_and_halt()
+
+            self.progress_signal.emit(10)
+            self.log_signal.emit(
+                "[INFO] Executing Mass/Chip Erase on all Flash regions... Please wait.")
+
+            try:
+                eraser = FlashEraser(session, mode=FlashEraser.Mode.CHIP)
+                eraser.erase()
+            except Exception as e_chip:
+                if "IPSR=3" in str(e_chip) or "not halted" in str(e_chip) or "fault" in str(e_chip).lower():
+                    self.log_signal.emit(
+                        "[WARNING] Chip Erase algorithm faulted. Retrying with Hardware MASS Erase...")
+                    target.reset_and_halt()
+                    eraser_mass = FlashEraser(
+                        session, mode=FlashEraser.Mode.MASS)
+                    eraser_mass.erase()
+                else:
+                    raise e_chip
+
+            self.progress_signal.emit(100)
+            self.log_signal.emit(
+                "[INFO] ✔ Full Chip Erase completed successfully! Memory is now blank.")
+
+            target.reset_and_halt()
+            self.finished_signal.emit(
+                True, "Full Chip Erase completed successfully.")
+
+        except Exception as e:
+            error_msg = f"Chip Erase failed: {str(e)}"
+            self.log_signal.emit(f"[ERROR] {error_msg}")
+            self.finished_signal.emit(False, error_msg)
+
+        finally:
+            if session:
+                try:
+                    session.close()
+                    self.log_signal.emit("[INFO] SWD session closed.")
+                except Exception:
+                    pass
 
     def _progress_callback(self, progress: float) -> None:
         if self._is_running:
@@ -56,14 +138,17 @@ class FlashWorker(QObject):
         session = None
         try:
             self.log_signal.emit(
-                f"[INFO] Starting Production Mode for file: {os.path.basename(self.file_path)}")
+                f"[INFO] Starting Production Mode for file: {os.path.basename(self.file_path)}"
+            )
             self.log_signal.emit(
-                f"[INFO] Connecting to target '{self.target_type}' @ {self.clock_freq//1000} kHz...")
+                f"[INFO] Connecting to target via auto-detection @ {self.clock_freq//1000} kHz..."
+            )
 
+            # مقدار None در pyOCD یعنی: «خودت میکرو را شناسایی کن»
             options = {
                 'connect_mode': self.connect_mode,
                 'frequency': self.clock_freq,
-                'target_override': self.target_type,
+                'target_override': None,
                 'reset_type': 'hw' if self.connect_mode == 'under-reset' else 'sw',
                 'resume_on_disconnect': False
             }
@@ -73,9 +158,12 @@ class FlashWorker(QObject):
                     options=options)
                 session.open()
             except Exception as e:
-                if "not recognized" in str(e).lower() and self.target_type != "cortex_m":
+                # اگر شناسایی خودکار خطا داد (عدم نصب پک اختصاصی)، خودکار به cortex_m سوئیچ کن
+                err_lower = str(e).lower()
+                if "not recognized" in err_lower or "target" in err_lower:
                     self.log_signal.emit(
-                        "[WARNING] Target pack not found. Falling back to 'cortex_m'...")
+                        "[WARNING] Specific target pack not found. Using generic 'cortex_m' mode..."
+                    )
                     options['target_override'] = "cortex_m"
                     session = ConnectHelper.session_with_chosen_probe(
                         options=options)
@@ -83,13 +171,19 @@ class FlashWorker(QObject):
                 else:
                     raise e
 
+            board = session.board
+            target = board.target
+            # نام میکروی شناسایی‌شده را در لاگ به کاربر نشان می‌دهیم
             self.log_signal.emit(
-                "[INFO] SWD Connection established successfully.")
+                f"[INFO] SWD Connection established! Detected MCU: {target.part_number.upper()}"
+            )
+
             dpidr = session.probe.read_dp(0x0)
             self.log_signal.emit(f"[INFO] Read DP IDCODE: 0x{dpidr:08X}")
 
             self.log_signal.emit(
-                "[INFO] Initializing Flash Erase, Program, and Verify sequence...")
+                "[INFO] Initializing Flash Erase, Program, and Verify sequence..."
+            )
             self.progress_signal.emit(0)
 
             programmer = FileProgrammer(
@@ -101,16 +195,19 @@ class FlashWorker(QObject):
 
             self.progress_signal.emit(100)
             self.log_signal.emit(
-                "[INFO] ✔ Flash Program & Verify completed successfully!")
+                "[INFO] ✔ Flash Program & Verify completed successfully!"
+            )
 
             self.log_signal.emit(
-                "[INFO] Resetting target core to run application...")
+                "[INFO] Resetting target core to run application..."
+            )
             session.target.reset_and_halt()
             session.target.resume()
             self.log_signal.emit("[INFO] Target MCU is now running.")
 
             self.finished_signal.emit(
-                True, "Production flash sequence completed successfully.")
+                True, "Production flash sequence completed successfully."
+            )
 
         except Exception as e:
             error_msg = f"Flash operation failed: {str(e)}"
@@ -125,10 +222,11 @@ class FlashWorker(QObject):
                 except Exception:
                     pass
 
-
 # =====================================================================
 # Worker 2: CDC Virtual COM Port (Serial) Worker
 # =====================================================================
+
+
 class SerialWorker(QObject):
     """
     Background worker for continuous asynchronous serial port monitoring
@@ -238,12 +336,15 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(self.tab_programmer)
 
         # Target Config
-        config_group = QGroupBox("Hardware & Target Configuration")
+        config_group = QGroupBox("Hardware Configuration")
         config_layout = QHBoxLayout()
-        config_layout.addWidget(QLabel("Target: STM32F103C8"))
+
         config_layout.addWidget(QLabel("SWD Clock: 100 kHz"))
-        config_layout.addWidget(QLabel("Mode: Under-Reset"))
+        config_layout.addWidget(QLabel(" |   Connect Mode: Under-Reset"))
+        config_layout.addWidget(
+            QLabel(" |   Target: Auto-Detect (ARM Cortex-M)"))
         config_layout.addStretch()
+
         config_group.setLayout(config_layout)
         layout.addWidget(config_group)
 
@@ -269,6 +370,22 @@ class MainWindow(QMainWindow):
         )
         self.btn_production_flash.clicked.connect(self._start_production_flash)
         layout.addWidget(self.btn_production_flash)
+
+        action_layout = QHBoxLayout()
+
+        # main programm buttom
+        self.btn_production_flash = QPushButton("Start Production Flash")
+        self.btn_production_flash.clicked.connect(self._start_production_flash)
+        action_layout.addWidget(self.btn_production_flash)
+
+        # Full Chip Erase buttom
+        self.btn_chip_erase = QPushButton("Full Chip Erase")
+        self.btn_chip_erase.setStyleSheet(
+            "QPushButton { color: #d9534f; font-weight: bold; }")
+        self.btn_chip_erase.clicked.connect(self._start_chip_erase)
+        action_layout.addWidget(self.btn_chip_erase)
+
+        layout.addLayout(action_layout)
 
         # Progress Bar
         self.progress_bar = QProgressBar()
@@ -406,7 +523,6 @@ class MainWindow(QMainWindow):
         self.flash_thread = QThread()
         self.flash_worker = FlashWorker(
             file_path=file_path,
-            target_type="stm32f103c8",
             clock_freq=100000,
             connect_mode="under-reset"
         )
@@ -414,6 +530,47 @@ class MainWindow(QMainWindow):
 
         self.flash_thread.started.connect(
             self.flash_worker.run_production_flash)
+        self.flash_worker.log_signal.connect(self._append_flash_log)
+        self.flash_worker.progress_signal.connect(self.progress_bar.setValue)
+        self.flash_worker.finished_signal.connect(self._on_flash_finished)
+
+        self.flash_worker.finished_signal.connect(self.flash_thread.quit)
+        self.flash_worker.finished_signal.connect(
+            self.flash_worker.deleteLater)
+        self.flash_thread.finished.connect(self.flash_thread.deleteLater)
+
+        self.flash_thread.start()
+
+    def _start_chip_erase(self) -> None:
+        # ۱. باز شدن پنجره تأییدیه
+        reply = QMessageBox.question(
+            self,
+            "Confirm Chip Erase",
+            "Are you sure you want to perform a FULL CHIP ERASE?\n\nThis will completely wipe the target microcontroller flash memory.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        # ۲. غیرفعال کردن دکمه‌ها و شروع کار
+        self.btn_production_flash.setEnabled(False)
+        self.btn_chip_erase.setEnabled(False)
+        self.progress_bar.setValue(0)
+        self._append_flash_log("-" * 65)
+        self._append_flash_log(
+            "[SYSTEM] Launching SWD/pyOCD background worker for Chip Erase...")
+
+        self.flash_thread = QThread()
+        self.flash_worker = FlashWorker(
+            file_path="",
+            clock_freq=100000,
+            connect_mode="under-reset"
+        )
+        self.flash_worker.moveToThread(self.flash_thread)
+
+        self.flash_thread.started.connect(self.flash_worker.run_chip_erase)
         self.flash_worker.log_signal.connect(self._append_flash_log)
         self.flash_worker.progress_signal.connect(self.progress_bar.setValue)
         self.flash_worker.finished_signal.connect(self._on_flash_finished)
