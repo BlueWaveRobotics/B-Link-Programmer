@@ -48,8 +48,8 @@ class FlashWorker(QObject):
     @Slot()
     def run_chip_erase(self) -> None:
         """
-        Executes a robust Full Chip Erase on ARM Cortex-M targets,
-        preventing HardFault (IPSR=3) by explicitly halting the core first.
+        Robust Full Chip Erase that prevents CPU Lockup on blank flash,
+        allowing unlimited consecutive Erase/Program operations.
         """
         session = None
         try:
@@ -58,10 +58,11 @@ class FlashWorker(QObject):
                 f"[INFO] Connecting to target via auto-detection @ {self.clock_freq//1000} kHz...")
 
             options = {
-                'connect_mode': self.connect_mode,
+                'connect_mode': 'under-reset',
                 'frequency': self.clock_freq,
                 'target_override': None,
-                'reset_type': 'hw' if self.connect_mode == 'under-reset' else 'sw',
+                'reset_type': 'hw',
+                'halt_on_connect': True,
                 'resume_on_disconnect': False
             }
 
@@ -86,7 +87,7 @@ class FlashWorker(QObject):
                 f"[INFO] SWD Connection established! Detected MCU: {target.part_number.upper()}")
 
             self.log_signal.emit(
-                "[INFO] Halting core and clearing active interrupts (preventing IPSR=3)...")
+                "[INFO] Halting core and clearing active interrupts...")
             target.reset_and_halt()
 
             self.progress_signal.emit(10)
@@ -111,7 +112,11 @@ class FlashWorker(QObject):
             self.log_signal.emit(
                 "[INFO] ✔ Full Chip Erase completed successfully! Memory is now blank.")
 
-            target.reset_and_halt()
+            try:
+                target.halt()
+            except Exception:
+                pass
+
             self.finished_signal.emit(
                 True, "Full Chip Erase completed successfully.")
 
@@ -585,13 +590,12 @@ class MainWindow(QMainWindow):
     @Slot(bool, str)
     def _on_flash_finished(self, success: bool, message: str) -> None:
         self.btn_production_flash.setEnabled(True)
-        self._append_flash_log("-" * 65)
+        self.btn_chip_erase.setEnabled(True)
+
         if success:
-            QMessageBox.information(
-                self, "Success", "Firmware successfully flashed and target is running!")
+            self._append_flash_log(f"[SUCCESS] {message}")
         else:
-            QMessageBox.critical(self, "Flash Failure",
-                                 f"Operation failed:\n{message}")
+            self._append_flash_log(f"[FAILED] {message}")
 
     # -----------------------------------------------------------------
     # Serial Monitor Slots & Helpers
