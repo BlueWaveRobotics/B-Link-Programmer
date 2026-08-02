@@ -1,298 +1,28 @@
-import sys
 import os
 import logging
-from typing import Optional, List
-from PySide6.QtCore import Qt, QObject, QThread, Signal, Slot
+from typing import Optional
+
+# PySide6 Core & GUI Widgets
+from PySide6.QtCore import Qt, QThread, Signal, Slot
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QLineEdit, QFileDialog, QProgressBar,
     QTextEdit, QGroupBox, QMessageBox, QTabWidget, QComboBox,
     QCheckBox
 )
 
+# PySerial (for listing available COM ports)
 import serial
 import serial.tools.list_ports
-from pyocd.core.helpers import ConnectHelper
-from pyocd.flash.file_programmer import FileProgrammer
-from pyocd.flash.eraser import FlashEraser
 
-# Configure Python logging
-logging.basicConfig(level=logging.INFO)
+# --- Internal Project Modular Imports ---
+from src.worker import FlashWorker, SerialWorker
+
+# (اختیاری) اگر زمانی خواستید مستقیم از لایه سخت‌افزار در GUI استفاده کنید:
+# from src.core import DAPLinkController
 logger = logging.getLogger("DAPLinkSuite")
 
 
-# =====================================================================
-# Worker 1: SWD / pyOCD Flash Programmer Worker
-# =====================================================================
-class FlashWorker(QObject):
-    """
-    Background worker for executing pyOCD flash programming and diagnostics
-    in a dedicated QThread to prevent GUI freezing (Target-Agnostic / Auto-Detect).
-    """
-    log_signal = Signal(str)
-    progress_signal = Signal(int)
-    finished_signal = Signal(bool, str)
-
-    def __init__(
-        self,
-        file_path: str,
-        clock_freq: int = 100000,
-        connect_mode: str = "under-reset"
-    ):
-        super().__init__()
-        self.file_path = file_path
-        self.clock_freq = clock_freq
-        self.connect_mode = connect_mode
-        self._is_running = True
-
-    @Slot()
-    def run_chip_erase(self) -> None:
-        """
-        Robust Full Chip Erase that prevents CPU Lockup on blank flash,
-        allowing unlimited consecutive Erase/Program operations.
-        """
-        session = None
-        try:
-            self.log_signal.emit("[INFO] Starting Full Chip Erase sequence...")
-            self.log_signal.emit(
-                f"[INFO] Connecting to target via auto-detection @ {self.clock_freq//1000} kHz...")
-
-            options = {
-                'connect_mode': 'under-reset',
-                'frequency': self.clock_freq,
-                'target_override': None,
-                'reset_type': 'hw',
-                'halt_on_connect': True,
-                'resume_on_disconnect': False
-            }
-
-            try:
-                session = ConnectHelper.session_with_chosen_probe(
-                    options=options)
-                session.open()
-            except Exception as e:
-                err_lower = str(e).lower()
-                if "not recognized" in err_lower or "target" in err_lower:
-                    self.log_signal.emit(
-                        "[WARNING] Specific target pack not found. Using generic 'cortex_m' mode...")
-                    options['target_override'] = "cortex_m"
-                    session = ConnectHelper.session_with_chosen_probe(
-                        options=options)
-                    session.open()
-                else:
-                    raise e
-
-            target = session.board.target
-            self.log_signal.emit(
-                f"[INFO] SWD Connection established! Detected MCU: {target.part_number.upper()}")
-
-            self.log_signal.emit(
-                "[INFO] Halting core and clearing active interrupts...")
-            target.reset_and_halt()
-
-            self.progress_signal.emit(10)
-            self.log_signal.emit(
-                "[INFO] Executing Mass/Chip Erase on all Flash regions... Please wait.")
-
-            try:
-                eraser = FlashEraser(session, mode=FlashEraser.Mode.CHIP)
-                eraser.erase()
-            except Exception as e_chip:
-                if "IPSR=3" in str(e_chip) or "not halted" in str(e_chip) or "fault" in str(e_chip).lower():
-                    self.log_signal.emit(
-                        "[WARNING] Chip Erase algorithm faulted. Retrying with Hardware MASS Erase...")
-                    target.reset_and_halt()
-                    eraser_mass = FlashEraser(
-                        session, mode=FlashEraser.Mode.MASS)
-                    eraser_mass.erase()
-                else:
-                    raise e_chip
-
-            self.progress_signal.emit(100)
-            self.log_signal.emit(
-                "[INFO] ✔ Full Chip Erase completed successfully! Memory is now blank.")
-
-            try:
-                target.halt()
-            except Exception:
-                pass
-
-            self.finished_signal.emit(
-                True, "Full Chip Erase completed successfully.")
-
-        except Exception as e:
-            error_msg = f"Chip Erase failed: {str(e)}"
-            self.log_signal.emit(f"[ERROR] {error_msg}")
-            self.finished_signal.emit(False, error_msg)
-
-        finally:
-            if session:
-                try:
-                    session.close()
-                    self.log_signal.emit("[INFO] SWD session closed.")
-                except Exception:
-                    pass
-
-    def _progress_callback(self, progress: float) -> None:
-        if self._is_running:
-            percent = int(progress * 100)
-            self.progress_signal.emit(percent)
-
-    @Slot()
-    def run_production_flash(self) -> None:
-        session = None
-        try:
-            self.log_signal.emit(
-                f"[INFO] Starting Production Mode for file: {os.path.basename(self.file_path)}"
-            )
-            self.log_signal.emit(
-                f"[INFO] Connecting to target via auto-detection @ {self.clock_freq//1000} kHz..."
-            )
-
-            # مقدار None در pyOCD یعنی: «خودت میکرو را شناسایی کن»
-            options = {
-                'connect_mode': self.connect_mode,
-                'frequency': self.clock_freq,
-                'target_override': None,
-                'reset_type': 'hw' if self.connect_mode == 'under-reset' else 'sw',
-                'resume_on_disconnect': False
-            }
-
-            try:
-                session = ConnectHelper.session_with_chosen_probe(
-                    options=options)
-                session.open()
-            except Exception as e:
-                # اگر شناسایی خودکار خطا داد (عدم نصب پک اختصاصی)، خودکار به cortex_m سوئیچ کن
-                err_lower = str(e).lower()
-                if "not recognized" in err_lower or "target" in err_lower:
-                    self.log_signal.emit(
-                        "[WARNING] Specific target pack not found. Using generic 'cortex_m' mode..."
-                    )
-                    options['target_override'] = "cortex_m"
-                    session = ConnectHelper.session_with_chosen_probe(
-                        options=options)
-                    session.open()
-                else:
-                    raise e
-
-            board = session.board
-            target = board.target
-            # نام میکروی شناسایی‌شده را در لاگ به کاربر نشان می‌دهیم
-            self.log_signal.emit(
-                f"[INFO] SWD Connection established! Detected MCU: {target.part_number.upper()}"
-            )
-
-            dpidr = session.probe.read_dp(0x0)
-            self.log_signal.emit(f"[INFO] Read DP IDCODE: 0x{dpidr:08X}")
-
-            self.log_signal.emit(
-                "[INFO] Initializing Flash Erase, Program, and Verify sequence..."
-            )
-            self.progress_signal.emit(0)
-
-            programmer = FileProgrammer(
-                session,
-                progress=self._progress_callback,
-                chip_erase="sector"
-            )
-            programmer.program(self.file_path)
-
-            self.progress_signal.emit(100)
-            self.log_signal.emit(
-                "[INFO] ✔ Flash Program & Verify completed successfully!"
-            )
-
-            self.log_signal.emit(
-                "[INFO] Resetting target core to run application..."
-            )
-            session.target.reset_and_halt()
-            session.target.resume()
-            self.log_signal.emit("[INFO] Target MCU is now running.")
-
-            self.finished_signal.emit(
-                True, "Production flash sequence completed successfully."
-            )
-
-        except Exception as e:
-            error_msg = f"Flash operation failed: {str(e)}"
-            self.log_signal.emit(f"[ERROR] {error_msg}")
-            self.finished_signal.emit(False, error_msg)
-
-        finally:
-            if session:
-                try:
-                    session.close()
-                    self.log_signal.emit("[INFO] SWD session closed.")
-                except Exception:
-                    pass
-
-# =====================================================================
-# Worker 2: CDC Virtual COM Port (Serial) Worker
-# =====================================================================
-
-
-class SerialWorker(QObject):
-    """
-    Background worker for continuous asynchronous serial port monitoring
-    without blocking the main GUI thread.
-    """
-    data_received = Signal(bytes)
-    status_changed = Signal(bool, str)
-    error_occurred = Signal(str)
-
-    def __init__(self, port: str, baudrate: int):
-        super().__init__()
-        self.port = port
-        self.baudrate = baudrate
-        self.serial_inst: Optional[serial.Serial] = None
-        self._is_running = False
-
-    @Slot()
-    def start_listening(self) -> None:
-        try:
-            self.serial_inst = serial.Serial(
-                port=self.port,
-                baudrate=self.baudrate,
-                timeout=0.1
-            )
-            self._is_running = True
-            self.status_changed.emit(
-                True, f"Connected to {self.port} @ {self.baudrate} bps")
-
-            while self._is_running and self.serial_inst and self.serial_inst.is_open:
-                if self.serial_inst.in_waiting > 0:
-                    data = self.serial_inst.read(self.serial_inst.in_waiting)
-                    if data:
-                        self.data_received.emit(data)
-
-        except Exception as e:
-            self.error_occurred.emit(str(e))
-            self.status_changed.emit(False, f"Connection error: {str(e)}")
-            self.stop_listening()
-
-    @Slot()
-    def send_data(self, data: bytes) -> None:
-        if self.serial_inst and self.serial_inst.is_open:
-            try:
-                self.serial_inst.write(data)
-            except Exception as e:
-                self.error_occurred.emit(f"Write failed: {str(e)}")
-
-    @Slot()
-    def stop_listening(self) -> None:
-        self._is_running = False
-        if self.serial_inst and self.serial_inst.is_open:
-            try:
-                self.serial_inst.close()
-            except Exception:
-                pass
-        self.status_changed.emit(False, "Disconnected")
-
-
-# =====================================================================
-# Main GUI Application Window (Multi-Tabbed Suite)
-# =====================================================================
 class MainWindow(QMainWindow):
     """
     Main GUI application window for DAPLink Programmer Management & CDC Serial Diagnostics.
@@ -367,7 +97,7 @@ class MainWindow(QMainWindow):
         file_group.setLayout(file_layout)
         layout.addWidget(file_group)
 
-        # Action Button
+        # Main One-Click Action Button
         self.btn_production_flash = QPushButton("ONE-CLICK PRODUCTION FLASH")
         self.btn_production_flash.setMinimumHeight(45)
         self.btn_production_flash.setStyleSheet(
@@ -378,12 +108,12 @@ class MainWindow(QMainWindow):
 
         action_layout = QHBoxLayout()
 
-        # main programm buttom
-        self.btn_production_flash = QPushButton("Start Production Flash")
-        self.btn_production_flash.clicked.connect(self._start_production_flash)
-        action_layout.addWidget(self.btn_production_flash)
+        # Start Production Flash Button
+        self.btn_start_flash = QPushButton("Start Production Flash")
+        self.btn_start_flash.clicked.connect(self._start_production_flash)
+        action_layout.addWidget(self.btn_start_flash)
 
-        # Full Chip Erase buttom
+        # Full Chip Erase Button
         self.btn_chip_erase = QPushButton("Full Chip Erase")
         self.btn_chip_erase.setStyleSheet(
             "QPushButton { color: #d9534f; font-weight: bold; }")
@@ -415,7 +145,8 @@ class MainWindow(QMainWindow):
         layout.addWidget(log_group)
 
         self._append_flash_log(
-            "[SYSTEM] DAPLink Production GUI Initialized. Ready for firmware deployment.")
+            "[SYSTEM] DAPLink Production GUI Initialized. Ready for firmware deployment."
+        )
 
     # -----------------------------------------------------------------
     # Tab 2: CDC Serial Monitor Build
@@ -439,13 +170,16 @@ class MainWindow(QMainWindow):
         serial_config_layout.addWidget(QLabel("Baud Rate:"))
         self.combo_baud = QComboBox()
         self.combo_baud.addItems(
-            ["9600", "19200", "38400", "57600", "115200", "230400", "460800", "921600"])
+            ["9600", "19200", "38400", "57600",
+                "115200", "230400", "460800", "921600"]
+        )
         self.combo_baud.setCurrentText("115200")
         serial_config_layout.addWidget(self.combo_baud)
 
         self.btn_connect_serial = QPushButton("Connect")
         self.btn_connect_serial.setStyleSheet(
-            "background-color: #2980B9; color: white; font-weight: bold;")
+            "background-color: #2980B9; color: white; font-weight: bold;"
+        )
         self.btn_connect_serial.clicked.connect(self._toggle_serial_connection)
         serial_config_layout.addWidget(self.btn_connect_serial)
 
@@ -510,13 +244,15 @@ class MainWindow(QMainWindow):
     def _append_flash_log(self, message: str) -> None:
         self.log_viewer.append(message)
         self.log_viewer.verticalScrollBar().setValue(
-            self.log_viewer.verticalScrollBar().maximum())
+            self.log_viewer.verticalScrollBar().maximum()
+        )
 
     def _start_production_flash(self) -> None:
         file_path = self.txt_filepath.text().strip()
         if not file_path or not os.path.exists(file_path):
             QMessageBox.warning(
-                self, "Invalid File", "Please select a valid .hex or .bin firmware file first.")
+                self, "Invalid File", "Please select a valid .hex or .bin firmware file first."
+            )
             return
 
         self.btn_production_flash.setEnabled(False)
@@ -547,7 +283,6 @@ class MainWindow(QMainWindow):
         self.flash_thread.start()
 
     def _start_chip_erase(self) -> None:
-        # ۱. باز شدن پنجره تأییدیه
         reply = QMessageBox.question(
             self,
             "Confirm Chip Erase",
@@ -559,7 +294,6 @@ class MainWindow(QMainWindow):
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        # ۲. غیرفعال کردن دکمه‌ها و شروع کار
         self.btn_production_flash.setEnabled(False)
         self.btn_chip_erase.setEnabled(False)
         self.progress_bar.setValue(0)
@@ -640,6 +374,7 @@ class MainWindow(QMainWindow):
 
             self.serial_thread.start()
         else:
+            # (باگ برطرف شد: این بخش باید در else قرار می‌گرفت تا قطع اتصال به درستی انجام شود)
             if self.serial_worker:
                 self.serial_worker.stop_listening()
             if self.serial_thread:
@@ -671,14 +406,16 @@ class MainWindow(QMainWindow):
         if connected:
             self.btn_connect_serial.setText("Disconnect")
             self.btn_connect_serial.setStyleSheet(
-                "background-color: #C0392B; color: white; font-weight: bold;")
+                "background-color: #C0392B; color: white; font-weight: bold;"
+            )
             self.combo_ports.setEnabled(False)
             self.combo_baud.setEnabled(False)
             self.btn_refresh_ports.setEnabled(False)
         else:
             self.btn_connect_serial.setText("Connect")
             self.btn_connect_serial.setStyleSheet(
-                "background-color: #2980B9; color: white; font-weight: bold;")
+                "background-color: #2980B9; color: white; font-weight: bold;"
+            )
             self.combo_ports.setEnabled(True)
             self.combo_baud.setEnabled(True)
             self.btn_refresh_ports.setEnabled(True)
@@ -705,7 +442,6 @@ class MainWindow(QMainWindow):
 
         try:
             if self.chk_hex_view.isChecked():
-                # Clean space-separated hex strings like '48 65 6C 6C 6F'
                 clean_hex = text.replace(" ", "").replace("0x", "")
                 data_bytes = bytes.fromhex(clean_hex)
             else:
@@ -717,7 +453,8 @@ class MainWindow(QMainWindow):
 
         except ValueError:
             QMessageBox.critical(
-                self, "Error", "Invalid HEX string format. Use hexadecimal characters only.")
+                self, "Error", "Invalid HEX string format. Use hexadecimal characters only."
+            )
 
     def closeEvent(self, event) -> None:
         """Safely clean up background threads before exiting application."""
@@ -730,10 +467,3 @@ class MainWindow(QMainWindow):
             self.flash_thread.quit()
             self.flash_thread.wait()
         super().closeEvent(event)
-
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = MainWindow()
-    window.show()
-    sys.exit(app.exec())

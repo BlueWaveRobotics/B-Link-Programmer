@@ -1,10 +1,10 @@
-import sys
 import logging
 from typing import Optional, Dict, Any, List
+
+# pyOCD Low-level libraries
 from pyocd.core.helpers import ConnectHelper
 from pyocd.core.session import Session
 from pyocd.core.target import Target
-
 logging.basicConfig(
     level=logging.INFO,
     format="[%(asctime)s] [%(levelname)s] %(message)s",
@@ -49,7 +49,7 @@ class DAPLinkController:
 
     def __init__(
         self,
-        target_type: str = "stm32f103c8",
+        target_type: Optional[str] = None,
         clock_freq: int = 100000,
         connect_mode: str = "under-reset"
     ):
