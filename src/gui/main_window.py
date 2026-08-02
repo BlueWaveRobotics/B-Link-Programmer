@@ -3,7 +3,7 @@ import logging
 from typing import Optional
 
 # PySide6 Core & GUI Widgets
-from PySide6.QtCore import Qt, QThread, Signal, Slot
+from PySide6.QtCore import Qt, QThread, Signal, Slot, QTimer
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QLineEdit, QFileDialog, QProgressBar,
@@ -18,7 +18,6 @@ import serial.tools.list_ports
 # --- Internal Project Modular Imports ---
 from src.worker import FlashWorker, SerialWorker
 
-# (اختیاری) اگر زمانی خواستید مستقیم از لایه سخت‌افزار در GUI استفاده کنید:
 # from src.core import DAPLinkController
 logger = logging.getLogger("DAPLinkSuite")
 
@@ -69,6 +68,24 @@ class MainWindow(QMainWindow):
     # -----------------------------------------------------------------
     def _build_programmer_tab(self) -> None:
         layout = QVBoxLayout(self.tab_programmer)
+
+        # Target Detection Section (CubeProgrammer Style)
+        target_group = QGroupBox("Target SWD Connection")
+        target_layout = QHBoxLayout()
+
+        self.lbl_target_id = QLabel("Target ID: Disconnected / Unknown")
+        self.lbl_target_id.setStyleSheet("color: #E74C3C; font-weight: bold;")
+
+        self.btn_refresh_target = QPushButton("🔄 Refresh Target")
+        self.btn_refresh_target.setToolTip(
+            "Detect ARM Core and read ID (No Chip Reset)")
+        self.btn_refresh_target.clicked.connect(self.on_refresh_target_clicked)
+
+        target_layout.addWidget(self.lbl_target_id)
+        target_layout.addStretch()
+        target_layout.addWidget(self.btn_refresh_target)
+        target_group.setLayout(target_layout)
+        layout.addWidget(target_group)
 
         # Target Config
         config_group = QGroupBox("Hardware Configuration")
@@ -268,7 +285,8 @@ class MainWindow(QMainWindow):
             connect_mode="under-reset"
         )
         self.flash_worker.moveToThread(self.flash_thread)
-
+        self.flash_worker.target_info_signal.connect(
+            self.on_target_info_received)
         self.flash_thread.started.connect(
             self.flash_worker.run_production_flash)
         self.flash_worker.log_signal.connect(self._append_flash_log)
@@ -374,7 +392,6 @@ class MainWindow(QMainWindow):
 
             self.serial_thread.start()
         else:
-            # (باگ برطرف شد: این بخش باید در else قرار می‌گرفت تا قطع اتصال به درستی انجام شود)
             if self.serial_worker:
                 self.serial_worker.stop_listening()
             if self.serial_thread:
@@ -455,6 +472,49 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(
                 self, "Error", "Invalid HEX string format. Use hexadecimal characters only."
             )
+
+    @Slot()
+    def on_refresh_target_clicked(self) -> None:
+        """Triggers non-blocking target SWD probe safely using a dynamic worker."""
+        self.btn_refresh_target.setEnabled(False)
+        self.lbl_target_id.setText("Target ID: Probing...")
+        self.lbl_target_id.setStyleSheet(
+            "color: #F39C12; font-weight: bold;")
+
+        self._refresh_thread = QThread()
+        self._refresh_worker = FlashWorker()
+        self._refresh_worker.moveToThread(self._refresh_thread)
+
+        self._refresh_worker.log_signal.connect(self._append_flash_log)
+        self._refresh_worker.target_info_signal.connect(
+            self.on_target_info_received)
+
+        self._refresh_thread.started.connect(
+            self._refresh_worker.check_target_connection)
+        self._refresh_worker.target_info_signal.connect(
+            self._refresh_thread.quit)
+        self._refresh_worker.target_info_signal.connect(
+            self._refresh_worker.deleteLater)
+        self._refresh_thread.finished.connect(self._refresh_thread.deleteLater)
+
+        self._refresh_thread.start()
+
+    @Slot(dict)
+    def on_target_info_received(self, info: dict) -> None:
+        """
+        Updates the UI label with chip part number and IDCODE/DPIDR.
+        """
+        self.btn_refresh_target.setEnabled(True)
+        if info.get("success"):
+            part_num = info.get("part_number", "ARM_MCU")
+            dpidr = info.get("dpidr", "0x2BA01477")
+            self.lbl_target_id.setText(f"Target: {part_num} | ID: {dpidr}")
+            self.lbl_target_id.setStyleSheet(
+                "color: #2ECC71; font-weight: bold;")
+        else:
+            self.lbl_target_id.setText("Target ID: No Target / SWD Error")
+            self.lbl_target_id.setStyleSheet(
+                "color: #E74C3C; font-weight: bold;")
 
     def closeEvent(self, event) -> None:
         """Safely clean up background threads before exiting application."""

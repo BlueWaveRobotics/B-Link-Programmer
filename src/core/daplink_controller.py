@@ -59,6 +59,67 @@ class DAPLinkController:
         self.session: Optional[Session] = None
         self.target: Optional[Target] = None
 
+    def get_target_info(self, clock_freq: int = 1000000) -> Dict[str, Any]:
+        """
+        Lightweight connection to read chip ID, Part Number, and Core Info
+        without resetting or halting the firmware (similar to CubeProgrammer Refresh).
+        """
+        session = None
+        info = {
+            "success": False,
+            "part_number": "Unknown",
+            "dpidr": "N/A",
+            "core_type": "Unknown",
+            "error": ""
+        }
+        try:
+            options = {
+                'connect_mode': 'attach',
+                'frequency': clock_freq,
+                'target_override': None,
+                'halt_on_connect': False
+            }
+
+            session = ConnectHelper.session_with_chosen_probe(options=options)
+            session.open()
+
+            target = session.board.target
+            dpidr_val = 0
+            try:
+                dpidr_val = session.probe.read_dp(0x0, attribute=0)
+            except Exception:
+                pass
+
+            info["success"] = True
+            info["part_number"] = str(target.part_number).upper()
+            info["dpidr"] = f"0x{dpidr_val:08X}" if dpidr_val else "Detected"
+            info["core_type"] = str(target.target_type).upper()
+
+        except Exception as e:
+            err_lower = str(e).lower()
+            if "not recognized" in err_lower or "target" in err_lower:
+                try:
+                    options['target_override'] = 'cortex_m'
+                    session = ConnectHelper.session_with_chosen_probe(
+                        options=options)
+                    session.open()
+                    target = session.board.target
+                    info["success"] = True
+                    info["part_number"] = "CORTEX-M (Generic)"
+                    info["core_type"] = str(target.target_type).upper()
+                    info["dpidr"] = "0x2BA01477 (Default DP)"
+                except Exception as e2:
+                    info["error"] = str(e2)
+            else:
+                info["error"] = str(e)
+        finally:
+            if session:
+                try:
+                    session.close()
+                except Exception:
+                    pass
+        return info
+
     @staticmethod
     def list_probes() -> None:
         """Scan and log all connected CMSIS-DAP / DAPLink debug probes."""

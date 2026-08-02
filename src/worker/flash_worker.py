@@ -25,6 +25,7 @@ class FlashWorker(QObject):
     log_signal = Signal(str)
     progress_signal = Signal(int)
     finished_signal = Signal(bool, str)
+    target_info_signal = Signal(dict)
 
     def __init__(
         self,
@@ -37,6 +38,28 @@ class FlashWorker(QObject):
         self.clock_freq = clock_freq
         self.connect_mode = connect_mode
         self._is_running = True
+
+    @Slot()
+    def check_target_connection(self) -> None:
+        """
+        Slot to refresh/detect the target chip and emit the info back to GUI.
+        """
+        self.log_signal.emit("[INFO] Probing SWD bus for Target ID...")
+        try:
+            info = self.controller.get_target_info(clock_freq=self.clock_freq)
+            if info["success"]:
+                self.log_signal.emit(
+                    f"[INFO] ✔ Chip Detected — MCU: {info['part_number']} | Core: {info['core_type']} | DPIDR: {info['dpidr']}"
+                )
+            else:
+                self.log_signal.emit(
+                    f"[WARNING] Target detection failed: {info['error']}"
+                )
+            self.target_info_signal.emit(info)
+        except Exception as e:
+            err_msg = str(e)
+            self.log_signal.emit(f"[ERROR] SWD Probe Exception: {err_msg}")
+            self.target_info_signal.emit({"success": False, "error": err_msg})
 
     @Slot()
     def run_chip_erase(self) -> None:
@@ -159,7 +182,6 @@ class FlashWorker(QObject):
                 f"[INFO] Connecting to target via auto-detection @ {self.clock_freq//1000} kHz..."
             )
 
-            # مقدار None در pyOCD یعنی: «خودت میکرو را شناسایی کن»
             options = {
                 'connect_mode': self.connect_mode,
                 'frequency': self.clock_freq,
@@ -173,7 +195,6 @@ class FlashWorker(QObject):
                     options=options)
                 session.open()
             except Exception as e:
-                # اگر شناسایی خودکار خطا داد (عدم نصب پک اختصاصی)، خودکار به cortex_m سوئیچ کن
                 err_lower = str(e).lower()
                 if "not recognized" in err_lower or "target" in err_lower:
                     self.log_signal.emit(
@@ -188,7 +209,6 @@ class FlashWorker(QObject):
 
             board = session.board
             target = board.target
-            # نام میکروی شناسایی‌شده را در لاگ به کاربر نشان می‌دهیم
             self.log_signal.emit(
                 f"[INFO] SWD Connection established! Detected MCU: {target.part_number.upper()}"
             )
