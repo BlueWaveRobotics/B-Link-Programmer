@@ -1,12 +1,13 @@
 """
 Background worker executing firmware programming, full chip erasing,
 and flash verification sequences in a dedicated asynchronous thread,
-supporting custom start memory addresses for RAW binaries and bootloaders.
+supporting custom start memory addresses for RAW binaries, bootloaders,
+96-bit UID reading, and serial number payload injection.
 """
 
 import os
-from typing import Optional, Any
-from PySide6.QtCore import Slot
+from typing import Optional, Any, List
+from PySide6.QtCore import Slot, Signal
 
 from pyocd.core.helpers import ConnectHelper
 from pyocd.flash.file_programmer import FileProgrammer
@@ -14,15 +15,22 @@ from pyocd.flash.eraser import FlashEraser
 
 from src.common import BaseWorker, get_logger
 from src.features.production_programmer.verify_service import VerifyService
+from src.features.production_programmer.provisioning import ProvisioningService
 
 logger = get_logger("ProductionProgrammerWorker")
+
+# Default STM32F1xx / F3xx Unique Device ID register base address
+DEFAULT_STM32_UID_ADDRESS = 0x1FFFF7E8
 
 
 class ProductionProgrammerWorker(BaseWorker):
     """
-    Worker class responsible for executing Production Flash and Full Chip Erase
-    operations via SWD interface without blocking the GUI thread.
+    Worker class responsible for executing Production Flash, Full Chip Erase,
+    UID reading, and Serial Provisioning operations via SWD interface
+    without blocking the GUI thread.
     """
+
+    uid_read_signal = Signal(str)
 
     def __init__(
         self,
@@ -31,6 +39,9 @@ class ProductionProgrammerWorker(BaseWorker):
         clock_freq: int = 1000000,
         connect_mode: str = "under-reset",
         verify_enabled: bool = True,
+        enable_provisioning: bool = False,
+        serial_payload: Optional[List[int]] = None,
+        serial_address: int = 0x0801FC00,
         parent: Optional[Any] = None,
     ):
         super().__init__(parent)
@@ -39,6 +50,9 @@ class ProductionProgrammerWorker(BaseWorker):
         self.clock_freq = clock_freq
         self.connect_mode = connect_mode
         self.verify_enabled = verify_enabled
+        self.enable_provisioning = enable_provisioning
+        self.serial_payload = serial_payload or []
+        self.serial_address = serial_address
 
     def _progress_callback(self, progress: float) -> None:
         """Translate pyOCD decimal progress (0.0 - 1.0) to integer percentage (0 - 100)."""
@@ -77,14 +91,16 @@ class ProductionProgrammerWorker(BaseWorker):
                 err_lower = str(e).lower()
                 if "not recognized" in err_lower or "target" in err_lower:
                     self.log(
-                        "[WARNING] Specific target pack not found. Using 'cortex_m' fallback...")
+                        "[WARNING] Specific target pack not found. Using 'cortex_m' fallback..."
+                    )
                     options["target_override"] = "cortex_m"
                     session = ConnectHelper.session_with_chosen_probe(
                         options=options)
                     session.open()
                 elif "no ack" in err_lower or "communication failure" in err_lower:
                     self.log(
-                        "[WARNING] Under-reset connect failed. Retrying in 'attach' mode...")
+                        "[WARNING] Under-reset connect failed. Retrying in 'attach' mode..."
+                    )
                     options["connect_mode"] = "attach"
                     session = ConnectHelper.session_with_chosen_probe(
                         options=options)
@@ -94,7 +110,8 @@ class ProductionProgrammerWorker(BaseWorker):
 
             target = session.board.target
             self.log(
-                f"[INFO] SWD Connected! MCU Part: {str(target.part_number).upper()}")
+                f"[INFO] SWD Connected! MCU Part: {str(target.part_number).upper()}"
+            )
 
             self.log("[INFO] Halting core and clearing active exceptions...")
             try:
@@ -104,14 +121,16 @@ class ProductionProgrammerWorker(BaseWorker):
 
             self.report_progress(10)
             self.log(
-                "[INFO] Executing Flash Erase on all memory sectors... Please wait.")
+                "[INFO] Executing Flash Erase on all memory sectors... Please wait."
+            )
 
             try:
                 eraser = FlashEraser(session, mode=FlashEraser.Mode.CHIP)
                 eraser.erase()
             except Exception:
                 self.log(
-                    "[WARNING] Chip Erase algorithm faulted. Attempting Hardware MASS Erase...")
+                    "[WARNING] Chip Erase algorithm faulted. Attempting Hardware MASS Erase..."
+                )
                 try:
                     target.halt()
                 except Exception:
@@ -121,9 +140,11 @@ class ProductionProgrammerWorker(BaseWorker):
 
             self.report_progress(100)
             self.log(
-                "[INFO] ✔ Full Chip Erase completed successfully! Memory is now blank.")
+                "[INFO] ✔ Full Chip Erase completed successfully! Memory is now blank."
+            )
             self.finished_signal.emit(
-                True, "Full Chip Erase completed successfully.")
+                True, "Full Chip Erase completed successfully."
+            )
 
         except Exception as exc:
             error_msg = f"Chip Erase failed: {str(exc)}"
@@ -143,9 +164,11 @@ class ProductionProgrammerWorker(BaseWorker):
         """
         Executes one-click production deployment:
         1. Auto-connect and identify ARM MCU.
-        2. Erase required sectors and program firmware image at the specified base address.
-        3. Verify firmware integrity if enabled.
-        4. Reset core to run application.
+        2. Read 96-bit Unique Device ID (UID).
+        3. Erase required sectors and program firmware image at the specified base address.
+        4. Verify firmware integrity if enabled.
+        5. Inject serial number payload if provisioning is enabled.
+        6. Reset core to run application.
         """
         session = None
         try:
@@ -174,7 +197,8 @@ class ProductionProgrammerWorker(BaseWorker):
                 err_lower = str(e).lower()
                 if "not recognized" in err_lower or "target" in err_lower:
                     self.log(
-                        "[WARNING] Target pack unknown. Using generic 'cortex_m' profile...")
+                        "[WARNING] Target pack unknown. Using generic 'cortex_m' profile..."
+                    )
                     options["target_override"] = "cortex_m"
                     session = ConnectHelper.session_with_chosen_probe(
                         options=options)
@@ -185,11 +209,31 @@ class ProductionProgrammerWorker(BaseWorker):
             board = session.board
             target = board.target
             self.log(
-                f"[INFO] ✔ Connected! Target MCU: {str(target.part_number).upper()}")
+                f"[INFO] ✔ Connected! Target MCU: {str(target.part_number).upper()}"
+            )
 
             dpidr = session.probe.read_dp(0x0)
             self.log(f"[INFO] Target DPIDR IDCODE: 0x{dpidr:08X}")
 
+            # ------------------------------------------------------------------
+            # Step 1: Read 96-bit Unique Device ID (UID)
+            # ------------------------------------------------------------------
+            try:
+                raw_uid_words = target.read_memory_block32(
+                    DEFAULT_STM32_UID_ADDRESS, 3)
+                formatted_uid = ProvisioningService.format_96bit_uid(
+                    raw_uid_words)
+                self.log(f"[INFO] 96-bit Unique ID (UID): {formatted_uid}")
+                self.uid_read_signal.emit(formatted_uid)
+            except Exception as uid_err:
+                self.log(
+                    f"[WARNING] Could not read UID from 0x{DEFAULT_STM32_UID_ADDRESS:08X}: {uid_err}"
+                )
+                self.uid_read_signal.emit("UID-READ-ERROR")
+
+            # ------------------------------------------------------------------
+            # Step 2: Program Firmware Image
+            # ------------------------------------------------------------------
             self.log(
                 f"[INFO] Programming firmware image into flash memory starting at 0x{self.base_address:08X}..."
             )
@@ -210,11 +254,32 @@ class ProductionProgrammerWorker(BaseWorker):
                 self.log("[INFO] ✔ Program & Verify verification successful!")
             else:
                 self.log(
-                    "[INFO] ✔ Programming completed (Verification was skipped).")
+                    "[INFO] ✔ Programming completed (Verification was skipped)."
+                )
 
+            # ------------------------------------------------------------------
+            # Step 3: Inject Serial Number Payload (Provisioning)
+            # ------------------------------------------------------------------
+            if self.enable_provisioning and len(self.serial_payload) > 0:
+                self.log(
+                    f"[PROVISIONING] Injecting {len(self.serial_payload)}-byte serial payload at 0x{self.serial_address:08X}..."
+                )
+                try:
+                    target.write_memory_block8(
+                        self.serial_address, self.serial_payload)
+                    self.log(
+                        "[INFO] ✔ Serial number injected into Flash successfully!")
+                except Exception as prov_err:
+                    self.log(
+                        f"[WARNING] Serial number injection failed: {prov_err}")
+
+            # ------------------------------------------------------------------
+            # Step 4: System Reset & Resume Execution
+            # ------------------------------------------------------------------
             self.report_progress(100)
             self.log(
-                "[INFO] Resetting MCU core to launch application firmware...")
+                "[INFO] Resetting MCU core to launch application firmware..."
+            )
             try:
                 session.target.reset_and_halt()
                 session.target.resume()
@@ -223,7 +288,8 @@ class ProductionProgrammerWorker(BaseWorker):
                 self.log(f"[WARNING] Post-flash reset warning: {str(e_reset)}")
 
             self.finished_signal.emit(
-                True, "Production Flash deployed successfully.")
+                True, "Production Flash deployed successfully."
+            )
 
         except Exception as exc:
             error_msg = f"Production Flash failed: {str(exc)}"

@@ -6,6 +6,7 @@ for ARM Cortex-M debug cores and STM32 microcontrollers.
 # =====================================================================
 # ARM Cortex-M Core Debug Register Addresses
 # =====================================================================
+from typing import Dict
 DHCSR_ADDR = 0xE000EDF0  # Debug Halting Control and Status Register
 DEMCR_ADDR = 0xE000EDFC  # Debug Exception and Monitor Control Register
 

@@ -1,0 +1,13 @@
+# SQLite Databases
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# Specific Production Traceability DB
+production_logs.db
+
+# Exported CSV / Excel Production Reports
+*.csv
+*.xlsx
+exports/
