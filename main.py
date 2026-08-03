@@ -19,7 +19,7 @@ from src.features.target_diagnostic import TargetDiagnosticWidget
 from src.features.production_programmer import ProductionProgrammerWidget
 from src.features.rdp_protection import RDPProtectionWidget
 from src.features.serial_monitor import SerialMonitorWidget
-
+from src.features.memory_viewer import MemoryViewerWidget
 # Import common infrastructure
 from src.common import get_logger, GlobalStatusBar
 
@@ -45,6 +45,7 @@ class MainWindow(QMainWindow):
         # Instantiate feature widgets
         self.diagnostic_widget = TargetDiagnosticWidget()
         self.programmer_widget = ProductionProgrammerWidget()
+        self.memory_widget = MemoryViewerWidget()
         self.rdp_widget = RDPProtectionWidget()
         self.serial_widget = SerialMonitorWidget()
 
@@ -52,6 +53,7 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(self.diagnostic_widget, "🔍 Target Diagnostic")
         self.tab_widget.addTab(self.programmer_widget,
                                "⚡ Production Programmer")
+        self.tab_widget.addTab(self.memory_widget, "💾 Device Memory")
         self.tab_widget.addTab(self.rdp_widget, "🔒 RDP Protection")
         self.tab_widget.addTab(self.serial_widget, "📡 Serial CDC Monitor")
 
@@ -72,6 +74,7 @@ class MainWindow(QMainWindow):
             # Terminate feature threads
             self.diagnostic_widget.shutdown_threads()
             self.programmer_widget.shutdown_threads()
+            self.memory_widget.shutdown_threads()
             self.rdp_widget.shutdown_threads()
             self.serial_widget.shutdown_threads()
 
