@@ -1,17 +1,28 @@
 """
 Main application entry point for B-Link DAPLink Production & Diagnostic Suite.
-Assembles all feature modules into an industrial multi-tab desktop interface
-and mounts a real-time hardware status bar.
+Assembles all feature modules into an industrial 4-pane desktop interface
+modeled after STM32CubeProgrammer, incorporating a vertical navigation sidebar,
+persistent right-hand diagnostic panel, collapsible bottom log console,
+and a real-time hardware status bar.
 """
 
 import sys
 from typing import Optional
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSize
+from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
-    QTabWidget,
     QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QStackedWidget,
+    QListWidget,
+    QListWidgetItem,
+    QDockWidget,
+    QPlainTextEdit,
+    QSplitter,
+    QFrame,
 )
 
 # Import feature widgets from modular architecture
@@ -20,48 +31,173 @@ from src.features.production_programmer import ProductionProgrammerWidget
 from src.features.rdp_protection import RDPProtectionWidget
 from src.features.serial_monitor import SerialMonitorWidget
 from src.features.memory_viewer import MemoryViewerWidget
+
 # Import common infrastructure
 from src.common import get_logger, GlobalStatusBar
 
 logger = get_logger("MainApplication")
 
 
+class SidebarNavWidget(QListWidget):
+    """
+    Industrial vertical navigation sidebar for switching between primary
+    workspace modules in the central QStackedWidget.
+    """
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.setFixedWidth(210)
+        self.setIconSize(QSize(24, 24))
+        self.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setStyleSheet(
+            """
+            QListWidget {
+                background-color: #1E1E1E;
+                border: none;
+                border-right: 1px solid #333333;
+                outline: 0;
+                padding-top: 10px;
+            }
+            QListWidget::item {
+                color: #CCCCCC;
+                padding: 14px 16px;
+                margin: 4px 8px;
+                border-radius: 6px;
+            }
+            QListWidget::item:hover {
+                background-color: #2D2D30;
+                color: #FFFFFF;
+            }
+            QListWidget::item:selected {
+                background-color: #007ACC;
+                color: #FFFFFF;
+                font-weight: bold;
+            }
+            """
+        )
+
+    def add_nav_item(self, text: str, tooltip: str = "") -> None:
+        """Appends a styled navigation item to the sidebar."""
+        item = QListWidgetItem(text)
+        item.setToolTip(tooltip)
+        self.addItem(item)
+
+
 class MainWindow(QMainWindow):
     """
-    Industrial main window hosting isolated feature modules inside a
-    structured tabbed workspace with a real-time DAPLink status bar.
+    Industrial 4-pane main window hosting isolated feature modules inside an
+    STM32CubeProgrammer-style workspace with a persistent right-hand diagnostic
+    dock and a real-time DAPLink status bar.
     """
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setWindowTitle(
-            "B-Link DAPLink Production & Diagnostic Suite v1.0")
-        self.resize(880, 680)
+            "B-Link DAPLink Production & Diagnostic Suite v1.0"
+        )
+        self.resize(1280, 800)
+        self.setMinimumSize(1024, 640)
 
-        # Initialize core UI tabs
-        self.tab_widget = QTabWidget()
-        self.setCentralWidget(self.tab_widget)
-
-        # Instantiate feature widgets
+        # Instantiate isolated feature modules
         self.diagnostic_widget = TargetDiagnosticWidget()
         self.programmer_widget = ProductionProgrammerWidget()
         self.memory_widget = MemoryViewerWidget()
         self.rdp_widget = RDPProtectionWidget()
         self.serial_widget = SerialMonitorWidget()
 
-        # Mount widgets into application tabs
-        self.tab_widget.addTab(self.diagnostic_widget, "🔍 Target Diagnostic")
-        self.tab_widget.addTab(self.programmer_widget,
-                               "⚡ Production Programmer")
-        self.tab_widget.addTab(self.memory_widget, "💾 Device Memory")
-        self.tab_widget.addTab(self.rdp_widget, "🔒 RDP Protection")
-        self.tab_widget.addTab(self.serial_widget, "📡 Serial CDC Monitor")
+        # Build application layout
+        self._init_central_workspace()
+        self._init_right_diagnostic_dock()
+        self._init_bottom_log_dock()
 
-        # Instantiate and attach global real-time DAPLink status bar
+        # Mount global real-time DAPLink status bar
         self.status_bar = GlobalStatusBar(self)
         self.setStatusBar(self.status_bar)
 
-        logger.info("Main window initialized and all feature modules mounted.")
+        logger.info("Industrial 4-pane workspace initialized successfully.")
+
+    def _init_central_workspace(self) -> None:
+        """Constructs the left navigation sidebar and central stacked workspace."""
+        central_container = QWidget()
+        layout = QHBoxLayout(central_container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # 1. Sidebar Navigation
+        self.sidebar = SidebarNavWidget()
+        self.sidebar.add_nav_item(
+            "💾  Device Memory", "Inspect & Edit Flash/RAM")
+        self.sidebar.add_nav_item(
+            "⚡  Programmer", "Production Flash Programming")
+        self.sidebar.add_nav_item(
+            "🔒  Option Bytes", "RDP & Option Byte Configuration")
+        self.sidebar.add_nav_item(
+            "📡  Serial Monitor", "Real-time CDC UART Console")
+
+        # 2. Central Workspace Stack
+        self.workspace_stack = QStackedWidget()
+        self.workspace_stack.addWidget(self.memory_widget)      # Index 0
+        self.workspace_stack.addWidget(self.programmer_widget)  # Index 1
+        self.workspace_stack.addWidget(self.rdp_widget)         # Index 2
+        self.workspace_stack.addWidget(self.serial_widget)      # Index 3
+
+        # Connect sidebar selection to stacked widget view
+        self.sidebar.currentRowChanged.connect(
+            self.workspace_stack.setCurrentIndex)
+        self.sidebar.setCurrentRow(0)  # Default view: Device Memory
+
+        layout.addWidget(self.sidebar)
+        layout.addWidget(self.workspace_stack, stretch=1)
+        self.setCentralWidget(central_container)
+
+    def _init_right_diagnostic_dock(self) -> None:
+        """Mounts the Target Diagnostic module inside a persistent right-hand dock."""
+        self.right_dock = QDockWidget(
+            "Target Configuration & Diagnostic", self)
+        self.right_dock.setAllowedAreas(
+            Qt.DockWidgetArea.RightDockWidgetArea | Qt.DockWidgetArea.LeftDockWidgetArea
+        )
+        self.right_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable
+            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        )
+        self.right_dock.setWidget(self.diagnostic_widget)
+        self.right_dock.setMinimumWidth(320)
+        self.addDockWidget(
+            Qt.DockWidgetArea.RightDockWidgetArea, self.right_dock)
+
+    def _init_bottom_log_dock(self) -> None:
+        """Mounts a collapsible shared log console inside a bottom dock."""
+        self.log_dock = QDockWidget("Application & Target Log Console", self)
+        self.log_dock.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea)
+        self.log_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetClosable
+            | QDockWidget.DockWidgetFeature.DockWidgetMovable
+            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        )
+
+        self.log_console = QPlainTextEdit()
+        self.log_console.setReadOnly(True)
+        self.log_console.setFont(QFont("Consolas", 9))
+        self.log_console.setMaximumHeight(140)
+        self.log_console.setStyleSheet(
+            """
+            QPlainTextEdit {
+                background-color: #121212;
+                color: #D4D4D4;
+                border: 1px solid #333333;
+                selection-background-color: #264F78;
+            }
+            """
+        )
+        self.log_console.appendPlainText(
+            "[INFO] B-Link DAPLink Industrial Suite initialized. Ready for target connection."
+        )
+
+        self.log_dock.setWidget(self.log_console)
+        self.addDockWidget(
+            Qt.DockWidgetArea.BottomDockWidgetArea, self.log_dock)
 
     def closeEvent(self, event) -> None:
         """
@@ -69,9 +205,10 @@ class MainWindow(QMainWindow):
         active background QThreads across feature modules and status bar.
         """
         logger.info(
-            "Application shutting down. Terminating background threads...")
+            "Application shutting down. Terminating background threads..."
+        )
         try:
-            # Terminate feature threads
+            # Terminate feature threads safely
             self.diagnostic_widget.shutdown_threads()
             self.programmer_widget.shutdown_threads()
             self.memory_widget.shutdown_threads()
