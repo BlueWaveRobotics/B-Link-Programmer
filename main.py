@@ -31,6 +31,7 @@ from src.features.production_programmer import ProductionProgrammerWidget
 from src.features.rdp_protection import RDPProtectionWidget
 from src.features.serial_monitor import SerialMonitorWidget
 from src.features.memory_viewer import MemoryViewerWidget
+from src.features.option_bytes import OptionBytesWidget
 
 # Import common infrastructure
 from src.common import get_logger, GlobalStatusBar
@@ -103,7 +104,7 @@ class MainWindow(QMainWindow):
         self.diagnostic_widget = TargetDiagnosticWidget()
         self.programmer_widget = ProductionProgrammerWidget()
         self.memory_widget = MemoryViewerWidget()
-        self.rdp_widget = RDPProtectionWidget()
+        self.ob_widget = OptionBytesWidget()
         self.serial_widget = SerialMonitorWidget()
 
         # Build application layout
@@ -130,8 +131,8 @@ class MainWindow(QMainWindow):
             "💾  Device Memory", "Inspect & Edit Flash/RAM")
         self.sidebar.add_nav_item(
             "⚡  Programmer", "Production Flash Programming")
-        self.sidebar.add_nav_item(
-            "🔒  Option Bytes", "RDP & Option Byte Configuration")
+        self.sidebar.add_nav_item("🔒  Option Bytes (OB)",
+                                  "RDP, Watchdog & BOR Config")
         self.sidebar.add_nav_item(
             "📡  Serial Monitor", "Real-time CDC UART Console")
 
@@ -139,7 +140,7 @@ class MainWindow(QMainWindow):
         self.workspace_stack = QStackedWidget()
         self.workspace_stack.addWidget(self.memory_widget)      # Index 0
         self.workspace_stack.addWidget(self.programmer_widget)  # Index 1
-        self.workspace_stack.addWidget(self.rdp_widget)         # Index 2
+        self.workspace_stack.addWidget(self.ob_widget)          # Index 2
         self.workspace_stack.addWidget(self.serial_widget)      # Index 3
 
         # Connect sidebar selection to stacked widget view
@@ -212,7 +213,7 @@ class MainWindow(QMainWindow):
             self.diagnostic_widget.shutdown_threads()
             self.programmer_widget.shutdown_threads()
             self.memory_widget.shutdown_threads()
-            self.rdp_widget.shutdown_threads()
+            self.ob_widget.shutdown_threads()
             self.serial_widget.shutdown_threads()
 
             # Terminate status bar monitoring thread
