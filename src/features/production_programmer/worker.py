@@ -1,11 +1,12 @@
 """
 Background worker executing firmware programming, full chip erasing,
 and flash verification sequences in a dedicated asynchronous thread,
-supporting custom start memory addresses for RAW binaries, bootloaders,
-96-bit UID reading, and serial number payload injection.
+supporting custom start memory addresses, 96-bit UID reading,
+serial number payload injection, and accurate cycle time tracking.
 """
 
 import os
+import time
 from typing import Optional, Any, List
 from PySide6.QtCore import Slot, Signal
 
@@ -19,7 +20,6 @@ from src.features.production_programmer.provisioning import ProvisioningService
 
 logger = get_logger("ProductionProgrammerWorker")
 
-# Default STM32F1xx / F3xx Unique Device ID register base address
 DEFAULT_STM32_UID_ADDRESS = 0x1FFFF7E8
 
 
@@ -31,6 +31,7 @@ class ProductionProgrammerWorker(BaseWorker):
     """
 
     uid_read_signal = Signal(str)
+    cycle_time_signal = Signal(float)
 
     def __init__(
         self,
@@ -67,6 +68,7 @@ class ProductionProgrammerWorker(BaseWorker):
         to clear locked or corrupted target memory.
         """
         session = None
+        start_time = time.perf_counter()
         try:
             self.log("[INFO] Starting Full Chip Erase sequence...")
             safe_clock = min(self.clock_freq, 50000)
@@ -139,14 +141,18 @@ class ProductionProgrammerWorker(BaseWorker):
                 eraser_mass.erase()
 
             self.report_progress(100)
+            elapsed_time = time.perf_counter() - start_time
+            self.cycle_time_signal.emit(elapsed_time)
             self.log(
-                "[INFO] ✔ Full Chip Erase completed successfully! Memory is now blank."
+                f"[INFO] ✔ Full Chip Erase completed successfully in {elapsed_time:.2f} s! Memory is now blank."
             )
             self.finished_signal.emit(
                 True, "Full Chip Erase completed successfully."
             )
 
         except Exception as exc:
+            elapsed_time = time.perf_counter() - start_time
+            self.cycle_time_signal.emit(elapsed_time)
             error_msg = f"Chip Erase failed: {str(exc)}"
             self.report_error(error_msg)
             self.finished_signal.emit(False, error_msg)
@@ -162,7 +168,7 @@ class ProductionProgrammerWorker(BaseWorker):
     @Slot()
     def run_production_flash(self) -> None:
         """
-        Executes one-click production deployment:
+        Executes one-click production deployment with QA cycle time tracking:
         1. Auto-connect and identify ARM MCU.
         2. Read 96-bit Unique Device ID (UID).
         3. Erase required sectors and program firmware image at the specified base address.
@@ -171,6 +177,7 @@ class ProductionProgrammerWorker(BaseWorker):
         6. Reset core to run application.
         """
         session = None
+        start_time = time.perf_counter()
         try:
             filename = os.path.basename(self.file_path)
             self.log(
@@ -287,11 +294,15 @@ class ProductionProgrammerWorker(BaseWorker):
             except Exception as e_reset:
                 self.log(f"[WARNING] Post-flash reset warning: {str(e_reset)}")
 
+            elapsed_time = time.perf_counter() - start_time
+            self.cycle_time_signal.emit(elapsed_time)
             self.finished_signal.emit(
                 True, "Production Flash deployed successfully."
             )
 
         except Exception as exc:
+            elapsed_time = time.perf_counter() - start_time
+            self.cycle_time_signal.emit(elapsed_time)
             error_msg = f"Production Flash failed: {str(exc)}"
             self.report_error(error_msg)
             self.finished_signal.emit(False, error_msg)
