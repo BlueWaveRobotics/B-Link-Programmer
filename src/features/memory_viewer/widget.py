@@ -9,7 +9,7 @@ from PySide6.QtGui import QFont, QColor
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
-    QHBoxLayout,
+    QGridLayout,
     QLabel,
     QComboBox,
     QLineEdit,
@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QMessageBox,
     QGroupBox,
+    QSizePolicy,
 )
 
 from src.common import get_logger
@@ -54,40 +55,29 @@ class MemoryViewerWidget(QWidget):
         main_layout.setSpacing(10)
 
         # -------------------------------------------------------------
-        # Top Toolbar Group (Address, Size, Data Width, Read Button)
+        # Top Toolbar Group (2-Row Compact Grid for Responsive UX)
         # -------------------------------------------------------------
         ctrl_group = QGroupBox("Device Memory Configuration")
-        ctrl_layout = QHBoxLayout(ctrl_group)
-        ctrl_layout.setSpacing(12)
+        ctrl_layout = QGridLayout(ctrl_group)
+        ctrl_layout.setContentsMargins(12, 16, 12, 12)
+        ctrl_layout.setHorizontalSpacing(12)
+        ctrl_layout.setVerticalSpacing(10)
 
-        # 1. Address ComboBox with presets & editable hex input
-        ctrl_layout.addWidget(QLabel("Address:"))
+        # Row 0: Address Selector (Col 0 & Col 1 spanning 2 columns) + Read Button (Col 3)
+        ctrl_layout.addWidget(QLabel("Address:"), 0, 0)
         self.combo_address = QComboBox()
         self.combo_address.setEditable(True)
-        self.combo_address.setMinimumWidth(220)
+        self.combo_address.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        # Prevent long preset names from forcing horizontal overlap on smaller screens
+        self.combo_address.setMinimumWidth(140)
         for label, addr in MEMORY_PRESETS:
             self.combo_address.addItem(label, addr)
-        ctrl_layout.addWidget(self.combo_address)
+        ctrl_layout.addWidget(self.combo_address, 0, 1, 1, 2)
 
-        # 2. Size input (in hex or decimal bytes)
-        ctrl_layout.addWidget(QLabel("Size (Bytes):"))
-        self.txt_size = QLineEdit("0x200")  # Default 512 bytes
-        self.txt_size.setMaximumWidth(80)
-        ctrl_layout.addWidget(self.txt_size)
-
-        # 3. Data Width selection
-        ctrl_layout.addWidget(QLabel("Data Width:"))
-        self.combo_width = QComboBox()
-        self.combo_width.addItems(["32-bit", "16-bit", "8-bit"])
-        self.combo_width.setCurrentText("32-bit")
-        self.combo_width.currentTextChanged.connect(
-            self._reformat_current_view)
-        ctrl_layout.addWidget(self.combo_width)
-
-        ctrl_layout.addStretch()
-
-        # 4. Read Button
         self.btn_read = QPushButton("📖 Read Memory")
+        self.btn_read.setMinimumHeight(30)
         self.btn_read.setStyleSheet(
             """
             QPushButton {
@@ -99,7 +89,25 @@ class MemoryViewerWidget(QWidget):
             """
         )
         self.btn_read.clicked.connect(self._on_read_clicked)
-        ctrl_layout.addWidget(self.btn_read)
+        ctrl_layout.addWidget(self.btn_read, 0, 3)
+
+        # Row 1: Size Input (Col 0 & Col 1) + Data Width Selection (Col 2 & Col 3)
+        ctrl_layout.addWidget(QLabel("Size (Bytes):"), 1, 0)
+        self.txt_size = QLineEdit("0x200")  # Default 512 bytes
+        self.txt_size.setFixedWidth(85)
+        ctrl_layout.addWidget(self.txt_size, 1, 1)
+
+        ctrl_layout.addWidget(QLabel("Data Width:"), 1, 2)
+        self.combo_width = QComboBox()
+        self.combo_width.addItems(["32-bit", "16-bit", "8-bit"])
+        self.combo_width.setCurrentText("32-bit")
+        self.combo_width.setFixedWidth(95)
+        self.combo_width.currentTextChanged.connect(
+            self._reformat_current_view)
+        ctrl_layout.addWidget(self.combo_width, 1, 3)
+
+        # Set stretch so the address box takes available width without pushing others
+        ctrl_layout.setColumnStretch(1, 1)
 
         main_layout.addWidget(ctrl_group)
 

@@ -1,7 +1,7 @@
 """
 UI component for Production Programmer.
-Provides interactive controls for firmware selection, SWD clock speed,
-connect modes, verify toggles, and real-time execution monitoring.
+Provides interactive controls for firmware selection, custom memory start address,
+SWD clock speed, connect modes, verify toggles, and real-time execution monitoring.
 """
 
 import os
@@ -28,11 +28,20 @@ from src.features.production_programmer.worker import ProductionProgrammerWorker
 
 logger = get_logger("ProductionProgrammerWidget")
 
+# Standard STM32 Memory Start Address Presets
+ADDRESS_PRESETS = [
+    ("0x08000000 - Main Flash Memory (Default Start)", "0x08000000"),
+    ("0x08004000 - Application Offset (16 KB Bootloader)", "0x08004000"),
+    ("0x08008000 - Application Offset (32 KB Bootloader)", "0x08008000"),
+    ("0x08010000 - Application Offset (64 KB Bootloader)", "0x08010000"),
+    ("0x20000000 - SRAM1 (RAM Execution / Testing)", "0x20000000"),
+]
+
 
 class ProductionProgrammerWidget(QWidget):
     """
-    Industrial UI Widget for managing firmware deployments, full chip erase operations,
-    and target SWD hardware configuration.
+    Industrial UI Widget for managing firmware deployments, custom start addressing,
+    full chip erase operations, and target SWD hardware configuration.
     """
 
     def __init__(self, parent: Optional[QWidget] = None):
@@ -79,11 +88,14 @@ class ProductionProgrammerWidget(QWidget):
         main_layout.addWidget(config_group)
 
         # -------------------------------------------------------------
-        # Firmware File Selection Group
+        # Firmware File & Memory Addressing Group
         # -------------------------------------------------------------
-        file_group = QGroupBox("Firmware Binary (.hex / .bin)")
-        file_layout = QHBoxLayout()
+        file_group = QGroupBox(
+            "Firmware Binary (.hex / .bin) & Memory Addressing")
+        file_layout = QVBoxLayout()
 
+        # Row 1: File selection
+        file_row_layout = QHBoxLayout()
         self.txt_filepath = QLineEdit()
         self.txt_filepath.setPlaceholderText(
             "Select firmware binary file (.hex or .bin)...")
@@ -92,8 +104,23 @@ class ProductionProgrammerWidget(QWidget):
         self.btn_browse = QPushButton("Browse File...")
         self.btn_browse.clicked.connect(self._select_file)
 
-        file_layout.addWidget(self.txt_filepath)
-        file_layout.addWidget(self.btn_browse)
+        file_row_layout.addWidget(self.txt_filepath)
+        file_row_layout.addWidget(self.btn_browse)
+        file_layout.addLayout(file_row_layout)
+
+        # Row 2: Start Address Selector
+        addr_row_layout = QHBoxLayout()
+        addr_row_layout.addWidget(QLabel("Start Address:"))
+        self.combo_address = QComboBox()
+        self.combo_address.setEditable(True)
+        for label, addr in ADDRESS_PRESETS:
+            self.combo_address.addItem(label, addr)
+        self.combo_address.setToolTip(
+            "Mandatory base address for raw .bin files. Acts as address override for .hex/.elf."
+        )
+        addr_row_layout.addWidget(self.combo_address, stretch=1)
+        file_layout.addLayout(addr_row_layout)
+
         file_group.setLayout(file_layout)
         main_layout.addWidget(file_group)
 
@@ -161,9 +188,9 @@ class ProductionProgrammerWidget(QWidget):
         text = self.combo_clock.currentText()
         if "10 MHz" in text:
             return 10000000
-        elif "4 MHz" in text:
+        if "4 MHz" in text:
             return 4000000
-        elif "1 MHz" in text:
+        if "1 MHz" in text:
             return 1000000
         return 100000  # Default: 100 kHz
 
@@ -177,6 +204,15 @@ class ProductionProgrammerWidget(QWidget):
         if file_path:
             self.txt_filepath.setText(file_path)
             self._append_log(f"[INFO] Firmware binary selected: {file_path}")
+
+    def _parse_input_address(self, text: str) -> int:
+        """Safely convert hexadecimal (0x...) or decimal string to integer address."""
+        clean_text = text.strip()
+        if " - " in clean_text:
+            clean_text = self.combo_address.currentData()
+        if clean_text.lower().startswith("0x"):
+            return int(clean_text, 16)
+        return int(clean_text)
 
     def _append_log(self, message: str) -> None:
         self.log_viewer.append(message)
@@ -197,6 +233,17 @@ class ProductionProgrammerWidget(QWidget):
             )
             return
 
+        try:
+            start_address = self._parse_input_address(
+                self.combo_address.currentText())
+            if start_address < 0 or start_address > 0xFFFFFFFF:
+                raise ValueError("Address out of 32-bit ARM Cortex-M range.")
+        except ValueError as err:
+            QMessageBox.warning(
+                self, "Invalid Address", f"Please enter a valid memory address: {str(err)}"
+            )
+            return
+
         clock_freq = self._get_selected_clock_freq()
         connect_mode = self.combo_mode.currentText()
         verify_enabled = self.chk_verify.isChecked()
@@ -205,11 +252,12 @@ class ProductionProgrammerWidget(QWidget):
         self.progress_bar.setValue(0)
         self._append_log("-" * 65)
         self._append_log(
-            "[SYSTEM] Launching SWD/pyOCD background programmer thread...")
+            f"[SYSTEM] Launching SWD/pyOCD programmer thread @ 0x{start_address:08X}...")
 
         self._flash_thread = QThread()
         self._flash_worker = ProductionProgrammerWorker(
             file_path=file_path,
+            base_address=start_address,
             clock_freq=clock_freq,
             connect_mode=connect_mode,
             verify_enabled=verify_enabled,
@@ -252,6 +300,7 @@ class ProductionProgrammerWidget(QWidget):
         self._flash_thread = QThread()
         self._flash_worker = ProductionProgrammerWorker(
             file_path="",
+            base_address=0x08000000,
             clock_freq=clock_freq,
             connect_mode=connect_mode,
             verify_enabled=False,

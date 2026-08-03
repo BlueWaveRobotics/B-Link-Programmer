@@ -1,6 +1,7 @@
 """
 Background worker executing firmware programming, full chip erasing,
-and flash verification sequences in a dedicated asynchronous thread.
+and flash verification sequences in a dedicated asynchronous thread,
+supporting custom start memory addresses for RAW binaries and bootloaders.
 """
 
 import os
@@ -26,6 +27,7 @@ class ProductionProgrammerWorker(BaseWorker):
     def __init__(
         self,
         file_path: str = "",
+        base_address: int = 0x08000000,
         clock_freq: int = 1000000,
         connect_mode: str = "under-reset",
         verify_enabled: bool = True,
@@ -33,6 +35,7 @@ class ProductionProgrammerWorker(BaseWorker):
     ):
         super().__init__(parent)
         self.file_path = file_path
+        self.base_address = base_address
         self.clock_freq = clock_freq
         self.connect_mode = connect_mode
         self.verify_enabled = verify_enabled
@@ -140,7 +143,7 @@ class ProductionProgrammerWorker(BaseWorker):
         """
         Executes one-click production deployment:
         1. Auto-connect and identify ARM MCU.
-        2. Erase required sectors and program firmware image.
+        2. Erase required sectors and program firmware image at the specified base address.
         3. Verify firmware integrity if enabled.
         4. Reset core to run application.
         """
@@ -148,7 +151,8 @@ class ProductionProgrammerWorker(BaseWorker):
         try:
             filename = os.path.basename(self.file_path)
             self.log(
-                f"[INFO] Launching Production Flash for image: {filename}")
+                f"[INFO] Launching Production Flash for image: {filename} @ 0x{self.base_address:08X}"
+            )
             self.log(
                 f"[INFO] Connecting to target @ {self.clock_freq // 1000} kHz | "
                 f"Mode: {self.connect_mode}"
@@ -186,7 +190,9 @@ class ProductionProgrammerWorker(BaseWorker):
             dpidr = session.probe.read_dp(0x0)
             self.log(f"[INFO] Target DPIDR IDCODE: 0x{dpidr:08X}")
 
-            self.log("[INFO] Programming firmware image into flash memory...")
+            self.log(
+                f"[INFO] Programming firmware image into flash memory starting at 0x{self.base_address:08X}..."
+            )
             self.report_progress(0)
 
             programmer = FileProgrammer(
@@ -196,6 +202,7 @@ class ProductionProgrammerWorker(BaseWorker):
             )
             programmer.program(
                 self.file_path,
+                base_address=self.base_address,
                 verify=self.verify_enabled,
             )
 
