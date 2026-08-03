@@ -1,6 +1,6 @@
 """
-Background worker for executing target MCU identification and low-level
-ARM Cortex-M core diagnostics without freezing the user interface.
+Background worker for executing target MCU identification, RDP lock scanning,
+and low-level ARM Cortex-M core diagnostics without freezing the user interface.
 """
 
 from typing import Dict, Any, Optional
@@ -13,11 +13,11 @@ logger = get_logger("TargetDiagnosticWorker")
 
 class TargetDiagnosticWorker(BaseWorker):
     """
-    Executes non-intrusive SWD bus probing and hardware register inspections
-    in an asynchronous background thread.
+    Executes non-intrusive SWD bus probing, RDP protection scanning,
+    and hardware register inspections in an asynchronous background thread.
     """
 
-    # Emit target chip identity (Probe SN, MCU Part Number, DPIDR)
+    # Emit target chip identity (Probe SN, MCU Part Number, DPIDR, RDP State)
     target_info_signal = Signal(dict)
 
     # Emit decoded core status registers (DHCSR, DEMCR flags)
@@ -40,8 +40,8 @@ class TargetDiagnosticWorker(BaseWorker):
     @Slot()
     def probe_target(self) -> None:
         """
-        Lightweight attach probe to identify MCU part number and DPIDR
-        without resetting or halting the running microcontroller.
+        Lightweight attach probe to identify MCU part number, DPIDR,
+        and Flash Read-Out Protection (RDP) state without resetting the core.
         """
         self.log("[INFO] Probing SWD bus for Target MCU identification...")
         try:
@@ -49,14 +49,28 @@ class TargetDiagnosticWorker(BaseWorker):
                 clock_freq=self.clock_freq
             )
             if info.get("success"):
+                # Perform quick Flash accessibility scan to determine RDP status
+                try:
+                    if self.session_manager.connect():
+                        _ = self.session_manager.session.target.read_memory_block32(
+                            0x08000000, 1
+                        )
+                        info["rdp_status"] = "LEVEL 0 (UNLOCKED)"
+                except Exception:
+                    info["rdp_status"] = "LEVEL 1/2 (PROTECTED)"
+                finally:
+                    self.session_manager.close()
+
                 self.log(
                     f"[INFO] ✔ Found Target: {info.get('part_number')} | "
                     f"Probe SN: {info.get('probe_serial')} | "
-                    f"DPIDR: {info.get('dpidr')}"
+                    f"DPIDR: {info.get('dpidr')} | "
+                    f"RDP: {info.get('rdp_status', 'UNKNOWN')}"
                 )
             else:
                 err = info.get("error", "Unknown probe failure")
                 self.log(f"[WARNING] Target probe failed: {err}")
+                info["rdp_status"] = "UNKNOWN"
 
             self.target_info_signal.emit(info)
 
@@ -65,7 +79,8 @@ class TargetDiagnosticWorker(BaseWorker):
             logger.error(f"Target probe exception: {error_msg}")
             self.report_error(f"SWD Probe Error: {error_msg}")
             self.target_info_signal.emit(
-                {"success": False, "error": error_msg})
+                {"success": False, "error": error_msg, "rdp_status": "ERROR"}
+            )
 
     @Slot()
     def inspect_core(self) -> None:

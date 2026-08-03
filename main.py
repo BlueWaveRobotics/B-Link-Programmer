@@ -9,7 +9,7 @@ and a real-time hardware status bar.
 import sys
 from typing import Optional
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QFont, QIcon
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -21,17 +21,14 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QDockWidget,
     QPlainTextEdit,
-    QSplitter,
-    QFrame,
 )
 
-# Import feature widgets from modular architecture
-from src.features.target_diagnostic import TargetDiagnosticWidget
-from src.features.production_programmer import ProductionProgrammerWidget
-from src.features.rdp_protection import RDPProtectionWidget
-from src.features.serial_monitor import SerialMonitorWidget
-from src.features.memory_viewer import MemoryViewerWidget
-from src.features.option_bytes import OptionBytesWidget
+# Import feature widgets cleanly from modular architecture (RDP module removed as it is in Option Bytes)
+from src.features.memory_viewer.widget import MemoryViewerWidget
+from src.features.production_programmer.widget import ProductionProgrammerWidget
+from src.features.option_bytes.widget import OptionBytesWidget
+from src.features.serial_monitor.widget import SerialMonitorWidget
+from src.features.target_diagnostic.widget import TargetDiagnosticWidget
 
 # Import common infrastructure
 from src.common import get_logger, GlobalStatusBar
@@ -100,12 +97,12 @@ class MainWindow(QMainWindow):
         self.resize(1280, 800)
         self.setMinimumSize(1024, 640)
 
-        # Instantiate isolated feature modules
-        self.diagnostic_widget = TargetDiagnosticWidget()
-        self.programmer_widget = ProductionProgrammerWidget()
+        # Instantiate isolated feature modules (No redundant RDP widget)
         self.memory_widget = MemoryViewerWidget()
+        self.programmer_widget = ProductionProgrammerWidget()
         self.ob_widget = OptionBytesWidget()
         self.serial_widget = SerialMonitorWidget()
+        self.diagnostic_widget = TargetDiagnosticWidget()
 
         # Build application layout
         self._init_central_workspace()
@@ -125,18 +122,22 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # 1. Sidebar Navigation
+        # 1. Sidebar Navigation (Clean 4 Primary Features)
         self.sidebar = SidebarNavWidget()
         self.sidebar.add_nav_item(
-            "💾  Device Memory", "Inspect & Edit Flash/RAM")
+            "💾  Device Memory", "Inspect & Edit Flash/RAM"
+        )
         self.sidebar.add_nav_item(
-            "⚡  Programmer", "Production Flash Programming")
-        self.sidebar.add_nav_item("🔒  Option Bytes (OB)",
-                                  "RDP, Watchdog & BOR Config")
+            "⚡  Programmer", "Production Flash Programming & Provisioning"
+        )
         self.sidebar.add_nav_item(
-            "📡  Serial Monitor", "Real-time CDC UART Console")
+            "🔒  Option Bytes (OB)", "RDP Levels, Watchdog, BOR & User OB"
+        )
+        self.sidebar.add_nav_item(
+            "📡  Serial Monitor", "Real-time CDC UART Console"
+        )
 
-        # 2. Central Workspace Stack
+        # 2. Central Workspace Stack (Indices 0 to 3)
         self.workspace_stack = QStackedWidget()
         self.workspace_stack.addWidget(self.memory_widget)      # Index 0
         self.workspace_stack.addWidget(self.programmer_widget)  # Index 1
@@ -145,7 +146,8 @@ class MainWindow(QMainWindow):
 
         # Connect sidebar selection to stacked widget view
         self.sidebar.currentRowChanged.connect(
-            self.workspace_stack.setCurrentIndex)
+            self.workspace_stack.setCurrentIndex
+        )
         self.sidebar.setCurrentRow(0)  # Default view: Device Memory
 
         layout.addWidget(self.sidebar)
@@ -155,18 +157,23 @@ class MainWindow(QMainWindow):
     def _init_right_diagnostic_dock(self) -> None:
         """Mounts the Target Diagnostic module inside a persistent right-hand dock."""
         self.right_dock = QDockWidget(
-            "Target Configuration & Diagnostic", self)
+            "Target Configuration & Diagnostic", self
+        )
         self.right_dock.setAllowedAreas(
-            Qt.DockWidgetArea.RightDockWidgetArea | Qt.DockWidgetArea.LeftDockWidgetArea
+            Qt.DockWidgetArea.RightDockWidgetArea
+            | Qt.DockWidgetArea.LeftDockWidgetArea
         )
         self.right_dock.setFeatures(
             QDockWidget.DockWidgetFeature.DockWidgetMovable
             | QDockWidget.DockWidgetFeature.DockWidgetFloatable
         )
         self.right_dock.setWidget(self.diagnostic_widget)
-        self.right_dock.setMinimumWidth(320)
+        self.right_dock.setMinimumWidth(340)
         self.addDockWidget(
-            Qt.DockWidgetArea.RightDockWidgetArea, self.right_dock)
+            Qt.DockWidgetArea.RightDockWidgetArea, self.right_dock
+        )
+        # Explicitly show the right diagnostic panel so it is never hidden
+        self.right_dock.show()
 
     def _init_bottom_log_dock(self) -> None:
         """Mounts a collapsible shared log console inside a bottom dock."""
@@ -198,7 +205,8 @@ class MainWindow(QMainWindow):
 
         self.log_dock.setWidget(self.log_console)
         self.addDockWidget(
-            Qt.DockWidgetArea.BottomDockWidgetArea, self.log_dock)
+            Qt.DockWidgetArea.BottomDockWidgetArea, self.log_dock
+        )
 
     def closeEvent(self, event) -> None:
         """
@@ -209,26 +217,34 @@ class MainWindow(QMainWindow):
             "Application shutting down. Terminating background threads..."
         )
         try:
-            # Terminate feature threads safely
-            self.diagnostic_widget.shutdown_threads()
-            self.programmer_widget.shutdown_threads()
-            self.memory_widget.shutdown_threads()
-            self.ob_widget.shutdown_threads()
-            self.serial_widget.shutdown_threads()
+            active_modules = [
+                getattr(self, "diagnostic_widget", None),
+                getattr(self, "programmer_widget", None),
+                getattr(self, "memory_widget", None),
+                getattr(self, "ob_widget", None),
+                getattr(self, "serial_widget", None),
+                getattr(self, "status_bar", None),
+            ]
 
-            # Terminate status bar monitoring thread
-            self.status_bar.shutdown_threads()
+            for module in active_modules:
+                if module and hasattr(module, "shutdown_threads"):
+                    try:
+                        module.shutdown_threads()
+                    except Exception as mod_exc:
+                        logger.warning(
+                            f"Warning while shutting down {module.__class__.__name__}: {mod_exc}"
+                        )
 
             logger.info("✔ All background threads closed safely.")
             event.accept()
+
         except Exception as exc:
-            logger.error(f"Error during thread shutdown: {str(exc)}")
+            logger.error(f"Critical error during thread shutdown: {str(exc)}")
             event.accept()
 
 
 def main() -> None:
     """Application bootstrap function."""
-    # Enable High-DPI scaling for modern displays
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )

@@ -27,6 +27,8 @@ from src.features.production_programmer.worker import ProductionProgrammerWorker
 from src.features.production_programmer.provisioning import ProvisioningService
 from src.features.production_programmer.qa_service import QAService
 from src.features.production_programmer.qa_banner import QABannerWidget
+from src.common.profile_manager import ProfileManager, SKUProfile
+
 
 logger = get_logger("ProductionProgrammerWidget")
 
@@ -42,6 +44,7 @@ class ProductionProgrammerWidget(QWidget):
         self.qa_service = QAService()
         self.current_uid: str = "UNKNOWN-UID"
         self.last_cycle_time: float = 0.0
+        self.profile_manager = ProfileManager()
 
         self._thread: QThread | None = None
         self._worker: ProductionProgrammerWorker | None = None
@@ -432,3 +435,12 @@ class ProductionProgrammerWidget(QWidget):
             self._thread.wait()
             self._thread = None
             self._worker = None
+
+    def _load_selected_sku_profile(self, profile_name: str) -> None:
+        profile = self.profile_manager.load_profile(profile_name)
+        if profile:
+            self.txt_file_path.setText(profile.file_path)
+            self.txt_base_addr.setText(hex(profile.base_address))
+            self.chk_verify.setChecked(profile.verify_enabled)
+            self.chk_serial_inject.setChecked(profile.enable_provisioning)
+            self.txt_serial_addr.setText(hex(profile.serial_address))

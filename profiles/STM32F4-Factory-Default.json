@@ -1,0 +1,10 @@
+{
+    "name": "STM32F4-Factory-Default",
+    "file_path": "",
+    "base_address": "0x8000000",
+    "clock_freq": 1000000,
+    "connect_mode": "under-reset",
+    "verify_enabled": true,
+    "enable_provisioning": false,
+    "serial_address": "0x801fc00"
+}

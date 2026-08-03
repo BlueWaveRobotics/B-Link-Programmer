@@ -1,6 +1,7 @@
 """
 UI component for Target Diagnostics.
-Displays hardware probe serial, MCU part number, DPIDR, and core status flags.
+Displays hardware probe serial, MCU part number, DPIDR, RDP lock state,
+and ARM Cortex-M core debug status flags.
 """
 
 from typing import Optional, Dict, Any
@@ -24,7 +25,7 @@ logger = get_logger("TargetDiagnosticWidget")
 class TargetDiagnosticWidget(QWidget):
     """
     Industrial diagnostic panel representing physical SWD connection status,
-    target identification, and low-level Cortex-M hardware register states.
+    target identification, RDP protection state, and Cortex-M hardware registers.
     """
 
     def __init__(self, parent: Optional[QWidget] = None):
@@ -52,7 +53,7 @@ class TargetDiagnosticWidget(QWidget):
 
         self.btn_refresh = QPushButton("🔄 Refresh Target")
         self.btn_refresh.setToolTip(
-            "Detect ARM Core and read IDCODE (No Chip Reset)"
+            "Detect ARM Core, read IDCODE, and check RDP Lock (No Chip Reset)"
         )
         self.btn_refresh.clicked.connect(self.on_refresh_clicked)
 
@@ -68,17 +69,20 @@ class TargetDiagnosticWidget(QWidget):
         action_layout.addWidget(self.btn_refresh)
         connection_layout.addLayout(action_layout)
 
-        # Bottom row: Hardware ID Metadata
+        # Bottom row: Hardware ID Metadata (Enhanced with RDP Status)
         meta_layout = QHBoxLayout()
         self.lbl_probe_sn = QLabel("Probe SN: N/A")
         self.lbl_part_num = QLabel("MCU: Unknown")
         self.lbl_dpidr = QLabel("DPIDR: N/A")
+        self.lbl_rdp = QLabel("RDP: N/A")
 
         meta_layout.addWidget(self.lbl_probe_sn)
         meta_layout.addWidget(QLabel(" | "))
         meta_layout.addWidget(self.lbl_part_num)
         meta_layout.addWidget(QLabel(" | "))
         meta_layout.addWidget(self.lbl_dpidr)
+        meta_layout.addWidget(QLabel(" | "))
+        meta_layout.addWidget(self.lbl_rdp)
         meta_layout.addStretch()
         connection_layout.addLayout(meta_layout)
 
@@ -164,7 +168,7 @@ class TargetDiagnosticWidget(QWidget):
 
     @Slot(dict)
     def _on_target_info_received(self, info: Dict[str, Any]) -> None:
-        """Update GUI labels with identified MCU information."""
+        """Update GUI labels with identified MCU information and RDP State."""
         self.btn_refresh.setEnabled(True)
         self.btn_inspect.setEnabled(True)
 
@@ -181,6 +185,14 @@ class TargetDiagnosticWidget(QWidget):
             self.lbl_dpidr.setText(
                 f"DPIDR: {info.get('dpidr', '0x2BA01477')}"
             )
+            rdp_text = info.get("rdp_status", "UNKNOWN")
+            self.lbl_rdp.setText(f"RDP: {rdp_text}")
+            if "UNLOCKED" in rdp_text:
+                self.lbl_rdp.setStyleSheet(
+                    "color: #2ECC71; font-weight: bold;")
+            else:
+                self.lbl_rdp.setStyleSheet(
+                    "color: #E74C3C; font-weight: bold;")
         else:
             self.lbl_status.setText("Status: CONNECTION FAULT / NO TARGET")
             self.lbl_status.setStyleSheet("color: #E74C3C; font-weight: bold;")
@@ -198,7 +210,8 @@ class TargetDiagnosticWidget(QWidget):
             self.lbl_status.setStyleSheet("color: #E74C3C; font-weight: bold;")
             err = status.get("error", "Unknown Diagnostic Error")
             self.txt_diag_display.setPlainText(
-                f"Failed to inspect core: {err}")
+                f"Failed to inspect core: {err}"
+            )
             return
 
         self.lbl_status.setText("Status: CORE INSPECTION COMPLETE")
@@ -212,7 +225,8 @@ class TargetDiagnosticWidget(QWidget):
             is_halted = dhcsr_flags.get("S_HALT", False)
             is_lockup = dhcsr_flags.get("S_LOCKUP", False)
             report_lines.append(
-                f"Core State: {'HALTED' if is_halted else 'RUNNING'}")
+                f"Core State: {'HALTED' if is_halted else 'RUNNING'}"
+            )
             if is_lockup:
                 report_lines.append("CRITICAL: MCU IS IN S_LOCKUP STATE!")
 
@@ -223,7 +237,8 @@ class TargetDiagnosticWidget(QWidget):
             traps = [k for k, v in demcr_flags.items()
                      if v and k.startswith("VC_")]
             report_lines.append(
-                f"DEMCR Active Traps: {', '.join(traps) if traps else 'None'}")
+                f"DEMCR Active Traps: {', '.join(traps) if traps else 'None'}"
+            )
 
         self.txt_diag_display.setPlainText("\n".join(report_lines))
 
