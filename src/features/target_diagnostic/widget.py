@@ -1,7 +1,7 @@
 """
 UI component for Target Diagnostics.
 Displays hardware probe serial, MCU part number, DPIDR, RDP lock state,
-and ARM Cortex-M core debug status flags.
+and ARM Cortex-M core debug status flags with fixed vertical layout and scroll area.
 """
 
 from typing import Optional, Dict, Any
@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
     QPushButton,
     QLabel,
     QTextEdit,
+    QScrollArea,
+    QFrame,
 )
 
 from src.common import get_logger
@@ -37,78 +39,99 @@ class TargetDiagnosticWidget(QWidget):
         self._init_ui()
 
     def _init_ui(self) -> None:
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll_area.setStyleSheet(
+            "QScrollArea { border: none; background-color: transparent; }")
+
+        scroll_content = QWidget()
+        main_layout = QVBoxLayout(scroll_content)
+        main_layout.setContentsMargins(8, 8, 8, 8)
+        main_layout.setSpacing(10)
 
         # -------------------------------------------------------------
         # Target SWD Connection Group (CubeProgrammer Style)
         # -------------------------------------------------------------
         connection_group = QGroupBox("Target SWD Connection & Identity")
         connection_layout = QVBoxLayout()
+        connection_layout.setSpacing(8)
 
-        # Top row: Status Banner and Actions
-        action_layout = QHBoxLayout()
+        # Status Banner
         self.lbl_status = QLabel("Status: DISCONNECTED")
-        self.lbl_status.setStyleSheet("color: #E74C3C; font-weight: bold;")
+        self.lbl_status.setStyleSheet(
+            "color: #E74C3C; font-weight: bold; font-size: 12px;")
+        connection_layout.addWidget(self.lbl_status)
 
-        self.btn_refresh = QPushButton("🔄 Refresh Target")
+        # Action Buttons
+        btn_layout = QHBoxLayout()
+        self.btn_refresh = QPushButton("🔄 Refresh")
         self.btn_refresh.setToolTip(
-            "Detect ARM Core, read IDCODE, and check RDP Lock (No Chip Reset)"
-        )
+            "Detect ARM Core, read IDCODE, and check RDP Lock")
         self.btn_refresh.clicked.connect(self.on_refresh_clicked)
 
-        self.btn_inspect = QPushButton("🔍 Inspect Core Registers")
-        self.btn_inspect.setToolTip(
-            "Read DHCSR & DEMCR core debug registers"
-        )
+        self.btn_inspect = QPushButton("🔍 Inspect Core")
+        self.btn_inspect.setToolTip("Read DHCSR & DEMCR core debug registers")
         self.btn_inspect.clicked.connect(self.on_inspect_clicked)
 
-        action_layout.addWidget(self.lbl_status)
-        action_layout.addStretch()
-        action_layout.addWidget(self.btn_inspect)
-        action_layout.addWidget(self.btn_refresh)
-        connection_layout.addLayout(action_layout)
+        btn_layout.addWidget(self.btn_refresh)
+        btn_layout.addWidget(self.btn_inspect)
+        connection_layout.addLayout(btn_layout)
 
-        # Bottom row: Hardware ID Metadata (Enhanced with RDP Status)
-        meta_layout = QHBoxLayout()
+        # Separator Line
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setFrameShadow(QFrame.Shadow.Sunken)
+        line.setStyleSheet("background-color: #333333;")
+        connection_layout.addWidget(line)
+
+        # Bottom Metadata Display
+        meta_layout = QVBoxLayout()
+        meta_layout.setSpacing(6)
+
         self.lbl_probe_sn = QLabel("Probe SN: N/A")
         self.lbl_part_num = QLabel("MCU: Unknown")
         self.lbl_dpidr = QLabel("DPIDR: N/A")
-        self.lbl_rdp = QLabel("RDP: N/A")
+        self.lbl_rdp = QLabel("RDP State: N/A")
 
-        meta_layout.addWidget(self.lbl_probe_sn)
-        meta_layout.addWidget(QLabel(" | "))
-        meta_layout.addWidget(self.lbl_part_num)
-        meta_layout.addWidget(QLabel(" | "))
-        meta_layout.addWidget(self.lbl_dpidr)
-        meta_layout.addWidget(QLabel(" | "))
-        meta_layout.addWidget(self.lbl_rdp)
-        meta_layout.addStretch()
+        for lbl in [self.lbl_probe_sn, self.lbl_part_num, self.lbl_dpidr, self.lbl_rdp]:
+            lbl.setWordWrap(True)
+            lbl.setStyleSheet(
+                "font-family: Consolas, monospace; font-size: 11px; color: #D4D4D4;")
+            meta_layout.addWidget(lbl)
+
         connection_layout.addLayout(meta_layout)
-
         connection_group.setLayout(connection_layout)
         main_layout.addWidget(connection_group)
 
         # -------------------------------------------------------------
         # Diagnostics Output Display (Core Registers Inspection)
         # -------------------------------------------------------------
-        diag_group = QGroupBox("Core Debug Register Status (DHCSR / DEMCR)")
+        diag_group = QGroupBox("Core Debug Register Status")
         diag_layout = QVBoxLayout()
 
         self.txt_diag_display = QTextEdit()
         self.txt_diag_display.setReadOnly(True)
-        self.txt_diag_display.setMaximumHeight(120)
+        self.txt_diag_display.setMinimumHeight(160)
         self.txt_diag_display.setStyleSheet(
             "background-color: #1A1A1A; color: #00FF66; "
             "font-family: Consolas, monospace; font-size: 11px;"
         )
         self.txt_diag_display.setPlaceholderText(
-            "Click 'Inspect Core Registers' to read low-level ARM status bits..."
+            "Click 'Inspect Core' to read low-level ARM status bits..."
         )
 
         diag_layout.addWidget(self.txt_diag_display)
         diag_group.setLayout(diag_layout)
         main_layout.addWidget(diag_group)
+
+        main_layout.addStretch()
+        scroll_area.setWidget(scroll_content)
+        layout.addWidget(scroll_area)
 
     # -----------------------------------------------------------------
     # Signal / Slot Execution Logic
@@ -186,15 +209,15 @@ class TargetDiagnosticWidget(QWidget):
                 f"DPIDR: {info.get('dpidr', '0x2BA01477')}"
             )
             rdp_text = info.get("rdp_status", "UNKNOWN")
-            self.lbl_rdp.setText(f"RDP: {rdp_text}")
+            self.lbl_rdp.setText(f"RDP State: {rdp_text}")
             if "UNLOCKED" in rdp_text:
                 self.lbl_rdp.setStyleSheet(
-                    "color: #2ECC71; font-weight: bold;")
+                    "font-family: Consolas; font-size: 11px; color: #2ECC71; font-weight: bold;")
             else:
                 self.lbl_rdp.setStyleSheet(
-                    "color: #E74C3C; font-weight: bold;")
+                    "font-family: Consolas; font-size: 11px; color: #E74C3C; font-weight: bold;")
         else:
-            self.lbl_status.setText("Status: CONNECTION FAULT / NO TARGET")
+            self.lbl_status.setText("Status: FAULT / NO TARGET")
             self.lbl_status.setStyleSheet("color: #E74C3C; font-weight: bold;")
             err = info.get("error", "Unknown Error")
             self._append_diag_log(f"[ERROR] Detection failed: {err}")
@@ -214,7 +237,7 @@ class TargetDiagnosticWidget(QWidget):
             )
             return
 
-        self.lbl_status.setText("Status: CORE INSPECTION COMPLETE")
+        self.lbl_status.setText("Status: INSPECTION COMPLETE")
         self.lbl_status.setStyleSheet("color: #2ECC71; font-weight: bold;")
 
         dhcsr_flags = status.get("dhcsr", {})

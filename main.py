@@ -54,7 +54,7 @@ class SidebarNavWidget(QWidget):
         layout.setSpacing(0)
 
         # 1. Toggle Button (Hamburger Menu for collapsing sidebar)
-        self.toggle_btn = QPushButton("☰  Menu")
+        self.toggle_btn = QPushButton("☰")
         self.toggle_btn.setFixedHeight(42)
         self.toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.toggle_btn.setStyleSheet(
@@ -231,7 +231,7 @@ class MainWindow(QMainWindow):
             QDockWidget.DockWidgetFeature.NoDockWidgetFeatures
         )
         self.right_dock.setWidget(self.diagnostic_widget)
-        self.right_dock.setMinimumWidth(340)
+        self.right_dock.setMinimumWidth(270)
         self.addDockWidget(
             Qt.DockWidgetArea.RightDockWidgetArea, self.right_dock
         )
