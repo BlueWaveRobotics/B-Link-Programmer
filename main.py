@@ -30,6 +30,7 @@ from src.features.production_programmer.widget import ProductionProgrammerWidget
 from src.features.option_bytes.widget import OptionBytesWidget
 from src.features.serial_monitor.widget import SerialMonitorWidget
 from src.features.target_diagnostic.widget import TargetDiagnosticWidget
+from src.features.batch_programmer.widget import BatchProgrammerWidget
 
 # Import common infrastructure
 from src.common import get_logger, GlobalStatusBar
@@ -167,6 +168,7 @@ class MainWindow(QMainWindow):
         self.ob_widget = OptionBytesWidget()
         self.serial_widget = SerialMonitorWidget()
         self.diagnostic_widget = TargetDiagnosticWidget()
+        self.batch_widget = BatchProgrammerWidget()
 
         # Build application layout
         self._init_central_workspace()
@@ -200,13 +202,17 @@ class MainWindow(QMainWindow):
         self.sidebar.add_nav_item(
             "📡", "Serial Monitor", "Real-time CDC UART Console"
         )
+        self.sidebar.add_nav_item(
+            "🚀", "Batch Flashing", "Simultaneous Multi-Probe Production Flashing"
+        )
 
-        # 2. Central Workspace Stack (Indices 0 to 3)
+        # 2. Central Workspace Stack (Indices 0 to 4)
         self.workspace_stack = QStackedWidget()
         self.workspace_stack.addWidget(self.memory_widget)      # Index 0
         self.workspace_stack.addWidget(self.programmer_widget)  # Index 1
         self.workspace_stack.addWidget(self.ob_widget)          # Index 2
         self.workspace_stack.addWidget(self.serial_widget)      # Index 3
+        self.workspace_stack.addWidget(self.batch_widget)       # Index 4
 
         # Connect sidebar selection to stacked widget view
         self.sidebar.currentRowChanged.connect(
@@ -287,6 +293,7 @@ class MainWindow(QMainWindow):
                 getattr(self, "ob_widget", None),
                 getattr(self, "serial_widget", None),
                 getattr(self, "status_bar", None),
+                getattr(self, "batch_widget", None),
             ]
 
             for module in active_modules:
