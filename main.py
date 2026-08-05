@@ -21,9 +21,10 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QDockWidget,
     QPlainTextEdit,
+    QPushButton,
 )
 
-# Import feature widgets cleanly from modular architecture (RDP module removed as it is in Option Bytes)
+# Import feature widgets cleanly from modular architecture
 from src.features.memory_viewer.widget import MemoryViewerWidget
 from src.features.production_programmer.widget import ProductionProgrammerWidget
 from src.features.option_bytes.widget import OptionBytesWidget
@@ -36,31 +37,65 @@ from src.common import get_logger, GlobalStatusBar
 logger = get_logger("MainApplication")
 
 
-class SidebarNavWidget(QListWidget):
+class SidebarNavWidget(QWidget):
     """
     Industrial vertical navigation sidebar for switching between primary
-    workspace modules in the central QStackedWidget.
+    workspace modules with collapsible icon-only / full text functionality.
     """
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
+        self.is_collapsed = False
         self.setFixedWidth(210)
-        self.setIconSize(QSize(24, 24))
-        self.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
-        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.setStyleSheet(
+
+        # Main layout inside sidebar QWidget
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # 1. Toggle Button (Hamburger Menu for collapsing sidebar)
+        self.toggle_btn = QPushButton("☰  Menu")
+        self.toggle_btn.setFixedHeight(42)
+        self.toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.toggle_btn.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #1A1A1A;
+                color: #007ACC;
+                border: none;
+                border-bottom: 1px solid #333333;
+                border-right: 1px solid #333333;
+                text-align: left;
+                padding-left: 16px;
+                font-weight: bold;
+                font-size: 13px;
+            }
+            QPushButton:hover {
+                background-color: #2D2D30;
+                color: #66C2FF;
+            }
+            """
+        )
+        self.toggle_btn.clicked.connect(self.toggle_sidebar)
+        layout.addWidget(self.toggle_btn)
+
+        # 2. Internal QListWidget for Navigation Items
+        self.list_widget = QListWidget()
+        self.list_widget.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        self.list_widget.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.list_widget.setStyleSheet(
             """
             QListWidget {
                 background-color: #1E1E1E;
                 border: none;
                 border-right: 1px solid #333333;
                 outline: 0;
-                padding-top: 10px;
+                padding-top: 6px;
             }
             QListWidget::item {
                 color: #CCCCCC;
-                padding: 14px 16px;
-                margin: 4px 8px;
+                padding: 12px 14px;
+                margin: 4px 6px;
                 border-radius: 6px;
             }
             QListWidget::item:hover {
@@ -74,12 +109,41 @@ class SidebarNavWidget(QListWidget):
             }
             """
         )
+        layout.addWidget(self.list_widget)
 
-    def add_nav_item(self, text: str, tooltip: str = "") -> None:
-        """Appends a styled navigation item to the sidebar."""
-        item = QListWidgetItem(text)
+    @property
+    def currentRowChanged(self):
+        """Exposes the internal QListWidget's currentRowChanged signal to MainWindow."""
+        return self.list_widget.currentRowChanged
+
+    def setCurrentRow(self, row: int) -> None:
+        """Exposes setCurrentRow method to MainWindow."""
+        self.list_widget.setCurrentRow(row)
+
+    def add_nav_item(self, icon_str: str, full_text: str, tooltip: str = "") -> None:
+        """Appends a styled navigation item supporting collapsed/expanded states."""
+        item = QListWidgetItem(f"{icon_str}  {full_text}")
+        item.setData(Qt.ItemDataRole.UserRole, (icon_str, full_text))
         item.setToolTip(tooltip)
-        self.addItem(item)
+        self.list_widget.addItem(item)
+
+    def toggle_sidebar(self) -> None:
+        """Toggles sidebar width between collapsed (60px) and expanded (210px)."""
+        self.is_collapsed = not self.is_collapsed
+        if self.is_collapsed:
+            self.setFixedWidth(60)
+            self.toggle_btn.setText("☰")
+            for i in range(self.list_widget.count()):
+                item = self.list_widget.item(i)
+                icon_str, _ = item.data(Qt.ItemDataRole.UserRole)
+                item.setText(icon_str)
+        else:
+            self.setFixedWidth(210)
+            self.toggle_btn.setText("☰  Menu")
+            for i in range(self.list_widget.count()):
+                item = self.list_widget.item(i)
+                icon_str, full_text = item.data(Qt.ItemDataRole.UserRole)
+                item.setText(f"{icon_str}  {full_text}")
 
 
 class MainWindow(QMainWindow):
@@ -97,7 +161,7 @@ class MainWindow(QMainWindow):
         self.resize(1280, 800)
         self.setMinimumSize(1024, 640)
 
-        # Instantiate isolated feature modules (No redundant RDP widget)
+        # Instantiate isolated feature modules
         self.memory_widget = MemoryViewerWidget()
         self.programmer_widget = ProductionProgrammerWidget()
         self.ob_widget = OptionBytesWidget()
@@ -122,19 +186,19 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # 1. Sidebar Navigation (Clean 4 Primary Features)
+        # 1. Sidebar Navigation (Collapsible Sidebar)
         self.sidebar = SidebarNavWidget()
         self.sidebar.add_nav_item(
-            "💾  Device Memory", "Inspect & Edit Flash/RAM"
+            "💾", "Device Memory", "Inspect & Edit Flash/RAM"
         )
         self.sidebar.add_nav_item(
-            "⚡  Programmer", "Production Flash Programming & Provisioning"
+            "⚡", "Programmer", "Production Flash Programming & Provisioning"
         )
         self.sidebar.add_nav_item(
-            "🔒  Option Bytes (OB)", "RDP Levels, Watchdog, BOR & User OB"
+            "🔒", "Option Bytes (OB)", "RDP Levels, Watchdog, BOR & User OB"
         )
         self.sidebar.add_nav_item(
-            "📡  Serial Monitor", "Real-time CDC UART Console"
+            "📡", "Serial Monitor", "Real-time CDC UART Console"
         )
 
         # 2. Central Workspace Stack (Indices 0 to 3)
@@ -155,24 +219,23 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central_container)
 
     def _init_right_diagnostic_dock(self) -> None:
-        """Mounts the Target Diagnostic module inside a persistent right-hand dock."""
+        """Mounts the Target Diagnostic module inside a persistent, fixed right-hand dock."""
         self.right_dock = QDockWidget(
             "Target Configuration & Diagnostic", self
         )
         self.right_dock.setAllowedAreas(
             Qt.DockWidgetArea.RightDockWidgetArea
-            | Qt.DockWidgetArea.LeftDockWidgetArea
         )
+        # Lock right dock: Completely disable moving, floating, or closing
         self.right_dock.setFeatures(
-            QDockWidget.DockWidgetFeature.DockWidgetMovable
-            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+            QDockWidget.DockWidgetFeature.NoDockWidgetFeatures
         )
         self.right_dock.setWidget(self.diagnostic_widget)
         self.right_dock.setMinimumWidth(340)
         self.addDockWidget(
             Qt.DockWidgetArea.RightDockWidgetArea, self.right_dock
         )
-        # Explicitly show the right diagnostic panel so it is never hidden
+        # Explicitly show the right diagnostic panel
         self.right_dock.show()
 
     def _init_bottom_log_dock(self) -> None:
