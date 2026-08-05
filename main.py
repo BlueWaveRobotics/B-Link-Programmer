@@ -31,7 +31,7 @@ from src.features.option_bytes.widget import OptionBytesWidget
 from src.features.serial_monitor.widget import SerialMonitorWidget
 from src.features.target_diagnostic.widget import TargetDiagnosticWidget
 from src.features.batch_programmer.widget import BatchProgrammerWidget
-
+from src.features.firmware_merger.widget import FirmwareMergerWidget
 # Import common infrastructure
 from src.common import get_logger, GlobalStatusBar
 
@@ -169,6 +169,7 @@ class MainWindow(QMainWindow):
         self.serial_widget = SerialMonitorWidget()
         self.diagnostic_widget = TargetDiagnosticWidget()
         self.batch_widget = BatchProgrammerWidget()
+        self.merger_widget = FirmwareMergerWidget()
 
         # Build application layout
         self._init_central_workspace()
@@ -205,14 +206,18 @@ class MainWindow(QMainWindow):
         self.sidebar.add_nav_item(
             "🚀", "Batch Flashing", "Simultaneous Multi-Probe Production Flashing"
         )
+        self.sidebar.add_nav_item(
+            "🧩",  "Firmware Merger", "Combine Bootloader & Application Binaries"
+        )
 
-        # 2. Central Workspace Stack (Indices 0 to 4)
+        # 2. Central Workspace Stack (Indices 0 to 5)
         self.workspace_stack = QStackedWidget()
         self.workspace_stack.addWidget(self.memory_widget)      # Index 0
         self.workspace_stack.addWidget(self.programmer_widget)  # Index 1
         self.workspace_stack.addWidget(self.ob_widget)          # Index 2
         self.workspace_stack.addWidget(self.serial_widget)      # Index 3
         self.workspace_stack.addWidget(self.batch_widget)       # Index 4
+        self.workspace_stack.addWidget(self.merger_widget)      # Index 5
 
         # Connect sidebar selection to stacked widget view
         self.sidebar.currentRowChanged.connect(
@@ -294,6 +299,7 @@ class MainWindow(QMainWindow):
                 getattr(self, "serial_widget", None),
                 getattr(self, "status_bar", None),
                 getattr(self, "batch_widget", None),
+                getattr(self, "merger_widget", None),
             ]
 
             for module in active_modules:
