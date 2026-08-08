@@ -45,6 +45,7 @@ class MemoryViewerWidget(QWidget):
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
+        self.current_interface = "DAPLink (SWD)"
         self._worker: Optional[MemoryReadWorker] = None
         self._init_ui()
 
@@ -139,6 +140,10 @@ class MemoryViewerWidget(QWidget):
         self._cached_address: int = 0
         self._cached_data: List[int] = []
 
+    def set_interface_type(self, interface_type: str) -> None:
+        """این متد از سمت MainWindow صدا زده می‌شود"""
+        self.current_interface = interface_type
+
     def _parse_input_number(self, text: str) -> int:
         """Parses hexadecimal (0x...) or decimal integer inputs safely."""
         clean_text = text.strip()
@@ -175,9 +180,12 @@ class MemoryViewerWidget(QWidget):
         self.btn_read.setEnabled(False)
         self.btn_read.setText("⏳ Reading...")
 
-        # Start Worker
+        # 🌟 اصلاح مهم: ارسال interface_type به ورکر 🌟
         self._worker = MemoryReadWorker(
-            address=start_address, size_bytes=size_bytes)
+            address=start_address,
+            size_bytes=size_bytes,
+            interface_type=self.current_interface  # ⬅️ این خط اضافه شد
+        )
         self._worker.memory_read_finished.connect(
             self._on_memory_read_finished)
         self._worker.start()

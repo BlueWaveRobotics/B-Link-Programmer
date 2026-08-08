@@ -158,6 +158,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
+        self.current_interface = "DAPLink (SWD)"
         self.setWindowTitle(
             "B-Link DAPLink Production & Diagnostic Suite v1.0"
         )
@@ -179,11 +180,32 @@ class MainWindow(QMainWindow):
         self._init_right_diagnostic_dock()
         self._init_bottom_log_dock()
 
+        self.diagnostic_widget.interface_changed.connect(
+            self.on_global_interface_changed)
+
         # Mount global real-time DAPLink status bar
         self.status_bar = GlobalStatusBar(self)
         self.setStatusBar(self.status_bar)
 
         logger.info("Industrial 4-pane workspace initialized successfully.")
+
+    def on_global_interface_changed(self, new_interface: str) -> None:
+        """به‌روزرسانی وضعیت سراسری و مطلع کردن تمام ماژول‌ها"""
+        self.current_interface = new_interface
+
+        # مطلع کردن تب مشاهده حافظه
+        if hasattr(self.memory_widget, "set_interface_type"):
+            self.memory_widget.set_interface_type(new_interface)
+
+        # مطلع کردن تب پروگرامر
+        if hasattr(self.programmer_widget, "set_interface_type"):
+            self.programmer_widget.set_interface_type(new_interface)
+
+        # مطلع کردن تب آپشن بایت‌ها
+        if hasattr(self.ob_widget, "set_interface_type"):
+            self.ob_widget.set_interface_type(new_interface)
+
+        logger.info(f"MainWindow updated global interface to: {new_interface}")
 
     def _init_central_workspace(self) -> None:
         """Constructs the left navigation sidebar and central stacked workspace."""
