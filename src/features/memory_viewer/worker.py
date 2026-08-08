@@ -19,7 +19,6 @@ class MemoryReadWorker(QThread):
     and emits the raw byte array back to the UI.
     """
 
-    # Signals: (success: bool, start_address: int, data: list[int], error_msg: str)
     memory_read_finished = Signal(bool, int, list, str)
 
     def __init__(
@@ -39,8 +38,15 @@ class MemoryReadWorker(QThread):
         )
         session = None
         try:
-            # Connect to the primary DAPLink probe
-            session = ConnectHelper.session_with_chosen_probe(blocking=False)
+            # استفاده از حالت attach یا under-reset برای جلوگیری از اجرای ناخواسته کد
+            options = {
+                "connect_mode": "attach",
+                "halt_on_connect": True,
+            }
+            session = ConnectHelper.session_with_chosen_probe(
+                blocking=False,
+                options=options
+            )
             if not session:
                 raise ConnectionError(
                     "No DAPLink/CMSIS-DAP debug probe connected.")
@@ -48,10 +54,27 @@ class MemoryReadWorker(QThread):
             session.open()
             target: Target = session.target
 
-            # Read raw 8-bit memory block from hardware
-            raw_data: List[int] = target.read_memory_block8(
-                self.address, self.size_bytes
-            )
+            # تلاش برای خواندن حافظه از سخت‌افزار
+            try:
+                raw_data: List[int] = target.read_memory_block8(
+                    self.address, self.size_bytes
+                )
+            except Exception as read_exc:
+                # تشخیص خطای محافظت خواندن (RDP Level 1)
+                exc_str = str(read_exc).lower()
+                if "transferfault" in exc_str or "fault" in exc_str or "ack" in exc_str:
+                    rdp_msg = (
+                        "[READ PROTECTED / RDP LEVEL 1 ACTIVE] "
+                        "Cannot read Flash memory while Read Protection is enabled. "
+                        "Please downgrade RDP to Level 0 in Option Bytes tab."
+                    )
+                    logger.warning(
+                        f"Memory read blocked by RDP protection: {read_exc}")
+                    self.memory_read_finished.emit(
+                        False, self.address, [], rdp_msg)
+                    return
+                else:
+                    raise read_exc
 
             logger.info("✔ Memory block read successfully from target.")
             self.memory_read_finished.emit(True, self.address, raw_data, "")
@@ -63,4 +86,7 @@ class MemoryReadWorker(QThread):
 
         finally:
             if session and session.is_open:
-                session.close()
+                try:
+                    session.close()
+                except Exception:
+                    pass

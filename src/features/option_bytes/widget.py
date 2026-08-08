@@ -1,7 +1,6 @@
 """
-Industrial Option Bytes (OB) Inspection and Configuration Widget modeled
-after STM32CubeProgrammer. Supports RDP Levels, Hardware/Software Watchdog,
-Stop/Standby Reset Behavior, and Live Hardware Synchronization.
+Diagnostic UI Widget for Option Bytes.
+Updated for STM32F1 (0xA5 as Unlock Key).
 """
 
 from typing import Optional, Dict, Any
@@ -13,12 +12,10 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QGroupBox,
     QLabel,
-    QComboBox,
     QCheckBox,
     QPushButton,
     QLineEdit,
     QMessageBox,
-    QFormLayout,
 )
 
 from src.common import get_logger
@@ -31,10 +28,6 @@ logger = get_logger("OptionBytesWidget")
 
 
 class OptionBytesWidget(QWidget):
-    """
-    Feature widget for reading, displaying, and programming STM32 Option Bytes.
-    """
-
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._read_worker: Optional[OptionBytesReadWorker] = None
@@ -42,97 +35,62 @@ class OptionBytesWidget(QWidget):
         self._init_ui()
 
     def _init_ui(self) -> None:
-        """Constructs the structured Option Bytes configuration form."""
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(16, 16, 16, 16)
         main_layout.setSpacing(14)
 
-        # -------------------------------------------------------------
-        # 1. Read-Out Protection (RDP) Section
-        # -------------------------------------------------------------
         rdp_group = QGroupBox("Read-Out Protection (RDP)")
-        rdp_layout = QFormLayout(rdp_group)
-        rdp_layout.setSpacing(10)
+        rdp_layout = QVBoxLayout(rdp_group)
 
-        self.combo_rdp = QComboBox()
-        self.combo_rdp.addItems([
-            "Level 0 (AA - Unprotected)",
-            "Level 1 (BB - Read Protected)",
-            "Level 2 (CC - Chip Protection / Permanent - CAUTION)"
-        ])
-        rdp_layout.addRow(QLabel("RDP Level:"), self.combo_rdp)
+        self.chk_rdp = QCheckBox("Read Out Protection (RDP Level 1)")
+        self.chk_rdp.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        self.chk_rdp.setChecked(True)
+        self.chk_rdp.setToolTip(
+            "Check to Lock (0xBB). Uncheck to Unlock & Mass Erase (0xA5).")
+        rdp_layout.addWidget(self.chk_rdp)
+
+        self.lbl_rdp_status = QLabel("Current Status: Unknown")
+        self.lbl_rdp_status.setStyleSheet(
+            "color: #BDC3C7; font-size: 10pt; font-weight: bold;")
+        rdp_layout.addWidget(self.lbl_rdp_status)
+
         main_layout.addWidget(rdp_group)
 
-        # -------------------------------------------------------------
-        # 2. User Configuration Option Bytes (USER OB)
-        # -------------------------------------------------------------
         user_group = QGroupBox("User Configuration (USER OB)")
         user_layout = QVBoxLayout(user_group)
-        user_layout.setSpacing(10)
 
-        self.chk_iwdg_sw = QCheckBox(
-            "IWDG_SW: Independent Watchdog in Software Mode")
+        self.chk_iwdg_sw = QCheckBox("IWDG_SW: Independent Watchdog Software")
         self.chk_iwdg_sw.setChecked(True)
-        self.chk_iwdg_sw.setToolTip(
-            "If unchecked, Independent Watchdog starts automatically by hardware.")
         user_layout.addWidget(self.chk_iwdg_sw)
 
-        self.chk_nrst_stop = QCheckBox(
-            "nRST_STOP: No Reset Generated when entering STOP mode")
+        self.chk_nrst_stop = QCheckBox("nRST_STOP: No Reset on STOP")
         self.chk_nrst_stop.setChecked(True)
         user_layout.addWidget(self.chk_nrst_stop)
 
-        self.chk_nrst_stdby = QCheckBox(
-            "nRST_STDBY: No Reset Generated when entering STANDBY mode")
+        self.chk_nrst_stdby = QCheckBox("nRST_STDBY: No Reset on STANDBY")
         self.chk_nrst_stdby.setChecked(True)
         user_layout.addWidget(self.chk_nrst_stdby)
 
         main_layout.addWidget(user_group)
 
-        # -------------------------------------------------------------
-        # 3. Raw Hexadecimal Display Section
-        # -------------------------------------------------------------
         raw_group = QGroupBox("Raw Option Bytes Dump")
         raw_layout = QHBoxLayout(raw_group)
-        raw_layout.addWidget(QLabel("Raw OB Block (8 Bytes):"))
+        raw_layout.addWidget(QLabel("Raw Block:"))
         self.txt_raw_hex = QLineEdit()
         self.txt_raw_hex.setReadOnly(True)
         self.txt_raw_hex.setFont(QFont("Consolas", 10))
-        self.txt_raw_hex.setPlaceholderText(
-            "Click 'Reload OB' to inspect hardware values...")
         raw_layout.addWidget(self.txt_raw_hex)
         main_layout.addWidget(raw_group)
 
         main_layout.addStretch()
 
-        # -------------------------------------------------------------
-        # 4. Action Buttons (Reload / Apply)
-        # -------------------------------------------------------------
         btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(12)
-
         self.btn_reload = QPushButton("🔄 Reload OB")
-        self.btn_reload.setStyleSheet(
-            """
-            QPushButton {
-                background-color: #34495E; color: white; font-weight: bold;
-                padding: 8px 18px; border-radius: 4px;
-            }
-            QPushButton:hover { background-color: #415B76; }
-            """
-        )
         self.btn_reload.clicked.connect(self._on_reload_clicked)
 
         self.btn_apply = QPushButton("⚡ Apply Option Bytes")
         self.btn_apply.setStyleSheet(
-            """
-            QPushButton {
-                background-color: #E67E22; color: white; font-weight: bold;
-                padding: 8px 18px; border-radius: 4px;
-            }
-            QPushButton:hover { background-color: #D35400; }
-            """
-        )
+            "background-color: #E67E22; color: white; font-weight: bold; padding: 8px;")
         self.btn_apply.clicked.connect(self._on_apply_clicked)
 
         btn_layout.addWidget(self.btn_reload)
@@ -143,8 +101,8 @@ class OptionBytesWidget(QWidget):
 
     @Slot()
     def _on_reload_clicked(self) -> None:
-        """Triggers background read of current target Option Bytes."""
         self.btn_reload.setEnabled(False)
+        self.btn_apply.setEnabled(False)
         self.btn_reload.setText("⏳ Reading...")
 
         self._read_worker = OptionBytesReadWorker()
@@ -152,23 +110,29 @@ class OptionBytesWidget(QWidget):
         self._read_worker.start()
 
     @Slot(bool, dict, str)
-    def _on_read_finished(
-        self, success: bool, ob_data: Dict[str, Any], error_msg: str
-    ) -> None:
-        """Populates UI controls with read hardware Option Bytes."""
+    def _on_read_finished(self, success: bool, ob_data: Dict[str, Any], error_msg: str) -> None:
         self.btn_reload.setEnabled(True)
+        self.btn_apply.setEnabled(True)
         self.btn_reload.setText("🔄 Reload OB")
 
         if not success:
             QMessageBox.critical(self, "Option Bytes Error", error_msg)
             return
 
-        # Synchronize UI with read parameters
-        rdp_level = ob_data.get("rdp_level", "")
-        for idx in range(self.combo_rdp.count()):
-            if rdp_level.startswith(self.combo_rdp.itemText(idx)[:7]):
-                self.combo_rdp.setCurrentIndex(idx)
-                break
+        rdp_raw = ob_data.get("rdp_raw", 0xBB)
+
+        # 0xA5 is the magic unlock byte for STM32F1
+        if rdp_raw == 0xA5:
+            self.chk_rdp.setChecked(False)
+            self.lbl_rdp_status.setText("Status: Unlocked (Level 0 - 0xA5)")
+            self.lbl_rdp_status.setStyleSheet(
+                "color: #2ECC71; font-weight: bold;")
+        else:
+            self.chk_rdp.setChecked(True)
+            self.lbl_rdp_status.setText(
+                f"Status: Locked (Level 1 - 0x{rdp_raw:02X})")
+            self.lbl_rdp_status.setStyleSheet(
+                "color: #E74C3C; font-weight: bold;")
 
         self.chk_iwdg_sw.setChecked(ob_data.get("iwdg_sw", True))
         self.chk_nrst_stop.setChecked(ob_data.get("nrst_stop", True))
@@ -177,63 +141,43 @@ class OptionBytesWidget(QWidget):
 
     @Slot()
     def _on_apply_clicked(self) -> None:
-        """Validates configuration and triggers Option Bytes programming."""
-        rdp_idx = self.combo_rdp.currentIndex()
-        if rdp_idx == 2:
-            confirm = QMessageBox.warning(
-                self,
-                "Critical Warning: Permanent Chip Protection",
-                "You selected RDP Level 2. Once applied, the microcontroller "
-                "JTAG/SWD debug port is permanently disabled and cannot be reverted.\n\n"
-                "Are you strictly sure you want to proceed?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if confirm == QMessageBox.StandardButton.No:
-                return
-            rdp_val = 0xCC
-        elif rdp_idx == 1:
-            rdp_val = 0xBB
-        else:
-            rdp_val = 0xAA
+        is_checked = self.chk_rdp.isChecked()
+        # ارسال 0xA5 برای باز کردن قفل STM32F1
+        rdp_val = 0xBB if is_checked else 0xA5
 
-        # Construct USER Option Byte (Bits 0, 1, 2)
         user_val = 0x00
         if self.chk_iwdg_sw.isChecked():
-            user_val |= (1 << 0)
+            user_val |= 1 << 0
         if self.chk_nrst_stop.isChecked():
-            user_val |= (1 << 1)
+            user_val |= 1 << 1
         if self.chk_nrst_stdby.isChecked():
-            user_val |= (1 << 2)
-        user_val |= 0xF8  # Reserved bits high in standard STM32
+            user_val |= 1 << 2
+        user_val |= 0xF8
 
         self.btn_apply.setEnabled(False)
-        self.btn_apply.setText("⏳ Programming OB...")
+        self.btn_reload.setEnabled(False)
+        self.btn_apply.setText("⏳ Programming...")
 
         self._program_worker = OptionBytesProgramWorker(
-            rdp_value=rdp_val, user_config_byte=user_val
-        )
+            rdp_value=rdp_val, user_config_byte=user_val)
         self._program_worker.ob_program_finished.connect(
             self._on_program_finished)
         self._program_worker.start()
 
     @Slot(bool, str)
     def _on_program_finished(self, success: bool, message: str) -> None:
-        """Handles completion of Option Bytes programming."""
         self.btn_apply.setEnabled(True)
+        self.btn_reload.setEnabled(True)
         self.btn_apply.setText("⚡ Apply Option Bytes")
 
         if success:
             QMessageBox.information(self, "Success", message)
             self._on_reload_clicked()
         else:
-            QMessageBox.critical(self, "Programming Error", message)
+            QMessageBox.critical(self, "Error", message)
 
     def shutdown_threads(self) -> None:
-        """Safely terminates active worker threads during application shutdown."""
         for worker in (self._read_worker, self._program_worker):
             if worker and worker.isRunning():
-                logger.info("Stopping Option Bytes worker thread...")
                 worker.quit()
                 worker.wait()
-                logger.info("✔ Option Bytes worker thread stopped.")
