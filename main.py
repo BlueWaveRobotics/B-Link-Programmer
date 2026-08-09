@@ -152,29 +152,29 @@ class SidebarNavWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # 1. Toggle Button (Hamburger Menu for collapsing sidebar)
+        # استایل‌های داینامیک برای دکمه همبرگری (حالت باز و بسته)
+        self.expanded_btn_style = """
+            QPushButton {
+                background-color: #1E293B; color: #38BDF8; border: none;
+                border-bottom: 1px solid #334155; border-right: 1px solid #334155;
+                text-align: left; padding-left: 16px; font-weight: bold; font-size: 13px;
+            }
+            QPushButton:hover { background-color: #0284C7; color: #FFFFFF; }
+        """
+        self.collapsed_btn_style = """
+            QPushButton {
+                background-color: #1E293B; color: #38BDF8; border: none;
+                border-bottom: 1px solid #334155; border-right: 1px solid #334155;
+                text-align: center; padding-left: 0px; font-weight: bold; font-size: 16px;
+            }
+            QPushButton:hover { background-color: #0284C7; color: #FFFFFF; }
+        """
+
+        # 1. Toggle Button (Hamburger Menu)
         self.toggle_btn = QPushButton("☰   Menu")
         self.toggle_btn.setFixedHeight(42)
         self.toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.toggle_btn.setStyleSheet(
-            """
-            QPushButton {
-                background-color: #1E293B;
-                color: #38BDF8;
-                border: none;
-                border-bottom: 1px solid #334155;
-                border-right: 1px solid #334155;
-                text-align: left;
-                padding-left: 16px;
-                font-weight: bold;
-                font-size: 13px;
-            }
-            QPushButton:hover {
-                background-color: #0284C7;
-                color: #FFFFFF;
-            }
-            """
-        )
+        self.toggle_btn.setStyleSheet(self.expanded_btn_style)
         self.toggle_btn.clicked.connect(self.toggle_sidebar)
         layout.addWidget(self.toggle_btn)
 
@@ -195,8 +195,8 @@ class SidebarNavWidget(QWidget):
                 padding-top: 8px;
             }
             QListWidget::item {
-                color: #E2E8F0;  
-                padding: 12px 14px;
+                color: #E2E8F0;
+                padding: 12px 8px; /* ⬅️ پدینگ افقی کمتر شد تا آیکون به خوبی جا شود */
                 margin: 4px 6px;
                 border-radius: 6px;
             }
@@ -207,7 +207,7 @@ class SidebarNavWidget(QWidget):
             QListWidget::item:selected {
                 background-color: #0284C7;
                 color: #FFFFFF;
-                font-weight: bold; /
+                font-weight: bold;
             }
             """
         )
@@ -225,27 +225,54 @@ class SidebarNavWidget(QWidget):
     def add_nav_item(self, icon_str: str, full_text: str, tooltip: str = "") -> None:
         """Appends a styled navigation item supporting collapsed/expanded states."""
         item = QListWidgetItem(f"{icon_str}  {full_text}")
-        item.setData(Qt.ItemDataRole.UserRole, (icon_str, full_text))
+
+        # ⬅️ تغییر مهم: حالا ما tooltip اصلی را هم در حافظه آیتم (UserRole) ذخیره می‌کنیم
+        item.setData(Qt.ItemDataRole.UserRole, (icon_str, full_text, tooltip))
         item.setToolTip(tooltip)
         self.list_widget.addItem(item)
 
     def toggle_sidebar(self) -> None:
         """Toggles sidebar width between collapsed (60px) and expanded (210px)."""
         self.is_collapsed = not self.is_collapsed
+
         if self.is_collapsed:
             self.setFixedWidth(60)
+            self.toggle_btn.setStyleSheet(self.collapsed_btn_style)
             self.toggle_btn.setText("☰")
+            # نمایش راهنما برای دکمه همبرگری
+            self.toggle_btn.setToolTip("Expand Menu")
+
             for i in range(self.list_widget.count()):
                 item = self.list_widget.item(i)
-                icon_str, _ = item.data(Qt.ItemDataRole.UserRole)
+                # دریافت اطلاعات ذخیره شده
+                icon_str, full_text, original_tooltip = item.data(
+                    Qt.ItemDataRole.UserRole)
+
                 item.setText(icon_str)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+                # ⬅️ تغییر مهم: در حالت بسته، نام کامل تب را به عنوان Tooltip نشان می‌دهیم
+                hover_text = f"{full_text}\n{original_tooltip}" if original_tooltip else full_text
+                item.setToolTip(hover_text)
+
         else:
             self.setFixedWidth(210)
+            self.toggle_btn.setStyleSheet(self.expanded_btn_style)
             self.toggle_btn.setText("☰   Menu")
+            self.toggle_btn.setToolTip("Collapse Menu")
+
             for i in range(self.list_widget.count()):
                 item = self.list_widget.item(i)
-                icon_str, full_text = item.data(Qt.ItemDataRole.UserRole)
+                # دریافت اطلاعات ذخیره شده
+                icon_str, full_text, original_tooltip = item.data(
+                    Qt.ItemDataRole.UserRole)
+
                 item.setText(f"{icon_str}  {full_text}")
+                item.setTextAlignment(
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+
+                # ⬅️ بازگرداندن Tooltip به حالت فقط توضیحات (چون نام تب الان قابل خواندن است)
+                item.setToolTip(original_tooltip)
 
 
 class MainWindow(QMainWindow):
