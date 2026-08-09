@@ -17,11 +17,11 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QFrame,
     QComboBox,
+    QMessageBox,
 )
 
 from src.common.logger import get_logger
 from src.features.target_diagnostic.worker import TargetDiagnosticWorker
-from PySide6.QtWidgets import QFileDialog, QMessageBox, QGroupBox, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QLabel
 from src.features.target_diagnostic.firmware_update_service import ProbeFirmwareUpdateService
 
 logger = get_logger("TargetDiagnosticWidget")
@@ -33,7 +33,7 @@ class TargetDiagnosticWidget(QWidget):
     target identification, RDP protection state, and Cortex-M hardware registers.
     """
 
-    # 🌟 سیگنال در جای درست (سطح کلاس) تعریف شد
+    # سیگنال در جای درست (سطح کلاس) تعریف شد
     interface_changed = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None):
@@ -43,6 +43,52 @@ class TargetDiagnosticWidget(QWidget):
         self._probe_worker: Optional[TargetDiagnosticWorker] = None
 
         self._init_ui()
+        self._apply_styles()
+
+    def _apply_styles(self) -> None:
+        """اعمال استایل‌های یکپارچه و صنعتی روی کل پنل سمت راست"""
+        self.setStyleSheet(
+            """
+            QGroupBox {
+                background-color: #1E293B;
+                border: 1px solid #334155;
+                border-radius: 6px;
+                margin-top: 14px;
+                font-size: 12px;
+                font-weight: bold;
+                color: #38BDF8;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                left: 12px;
+                padding: 0 6px;
+                background-color: transparent;
+            }
+            QPushButton {
+                background-color: #0284C7;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 12px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #38BDF8;
+            }
+            QPushButton:pressed {
+                background-color: #0369A1;
+            }
+            QPushButton:disabled {
+                background-color: #334155;
+                color: #94A3B8;
+            }
+            QLabel {
+                color: #E2E8F0;
+            }
+            """
+        )
 
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -56,21 +102,22 @@ class TargetDiagnosticWidget(QWidget):
             "QScrollArea { border: none; background-color: transparent; }")
 
         scroll_content = QWidget()
+        scroll_content.setStyleSheet("background-color: transparent;")
         main_layout = QVBoxLayout(scroll_content)
-        main_layout.setContentsMargins(8, 8, 8, 8)
-        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(12, 12, 12, 12)
+        main_layout.setSpacing(14)
 
         # -------------------------------------------------------------
         # 1. Target Connection Group
         # -------------------------------------------------------------
         connection_group = QGroupBox("Target Connection & Identity")
         connection_layout = QVBoxLayout()
-        connection_layout.setSpacing(10)
+        connection_layout.setSpacing(12)
 
         # Status Banner
         self.lbl_status = QLabel("Status: DISCONNECTED")
         self.lbl_status.setStyleSheet(
-            "color: #E74C3C; font-weight: bold; font-size: 12px;")
+            "color: #EF4444; font-weight: bold; font-size: 13px;")
         connection_layout.addWidget(self.lbl_status)
 
         # =============================================================
@@ -79,36 +126,38 @@ class TargetDiagnosticWidget(QWidget):
         iface_layout = QHBoxLayout()
         lbl_iface = QLabel("Interface:")
         lbl_iface.setStyleSheet(
-            "color: #CCCCCC; font-weight: bold; font-size: 11px;")
+            "color: #94A3B8; font-weight: bold; font-size: 11px;")
 
         self.cmb_interface = QComboBox()
         self.cmb_interface.addItems(["DAPLink (SWD)", "Direct USB (DFU)"])
         self.cmb_interface.setStyleSheet(
             """
             QComboBox {
-                background-color: #2D2D30;
-                color: #FFFFFF;
-                border: 1px solid #444444;
+                background-color: #0F172A;
+                color: #F8FAFC;
+                border: 1px solid #475569;
                 border-radius: 4px;
-                padding: 4px 8px;
+                padding: 4px 10px;
                 font-family: 'Segoe UI';
-                font-size: 11px;
+                font-size: 12px;
+                font-weight: bold;
             }
             QComboBox:hover {
-                border: 1px solid #007ACC;
+                border: 1px solid #38BDF8;
             }
             QComboBox::drop-down {
                 border: none;
+                width: 24px;
             }
             QComboBox QAbstractItemView {
-                background-color: #1E1E1E;
-                color: #FFFFFF;
-                selection-background-color: #007ACC;
+                background-color: #0F172A;
+                color: #F8FAFC;
+                selection-background-color: #0284C7;
+                border: 1px solid #475569;
             }
             """
         )
 
-        # 🌟 اتصال درست: اول QComboBox ساخته شد، حالا متصلش می‌کنیم
         self.cmb_interface.currentTextChanged.connect(
             self._on_interface_changed)
 
@@ -135,7 +184,7 @@ class TargetDiagnosticWidget(QWidget):
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setFrameShadow(QFrame.Shadow.Sunken)
-        line.setStyleSheet("background-color: #333333;")
+        line.setStyleSheet("background-color: #334155;")
         connection_layout.addWidget(line)
 
         # Bottom Metadata Display
@@ -150,7 +199,7 @@ class TargetDiagnosticWidget(QWidget):
         for lbl in [self.lbl_probe_sn, self.lbl_part_num, self.lbl_dpidr, self.lbl_rdp]:
             lbl.setWordWrap(True)
             lbl.setStyleSheet(
-                "font-family: Consolas, monospace; font-size: 11px; color: #D4D4D4;")
+                "font-family: Consolas, monospace; font-size: 11px; color: #CBD5E1;")
             meta_layout.addWidget(lbl)
 
         connection_layout.addLayout(meta_layout)
@@ -158,17 +207,28 @@ class TargetDiagnosticWidget(QWidget):
         main_layout.addWidget(connection_group)
 
         # -------------------------------------------------------------
-        # 2. Diagnostics Output Display
+        # 2. Diagnostics Output Display (Matrix Style Terminal)
         # -------------------------------------------------------------
         diag_group = QGroupBox("Core Debug Register Status")
         diag_layout = QVBoxLayout()
 
         self.txt_diag_display = QTextEdit()
         self.txt_diag_display.setReadOnly(True)
-        self.txt_diag_display.setMinimumHeight(160)
+        self.txt_diag_display.setMinimumHeight(180)
         self.txt_diag_display.setStyleSheet(
-            "background-color: #1A1A1A; color: #00FF66; "
-            "font-family: Consolas, monospace; font-size: 11px;"
+            """
+            QTextEdit {
+                background-color: #000000;
+                color: #00FF41; 
+                border: 1px solid #0F172A;
+                border-radius: 4px;
+                font-family: 'Consolas', 'Courier New', monospace; 
+                font-size: 12px;
+                padding: 6px;
+                selection-background-color: #27AE60;
+                selection-color: #000000;
+            }
+            """
         )
         self.txt_diag_display.setPlaceholderText(
             "Click 'Inspect Core' to read status bits...")
@@ -184,18 +244,28 @@ class TargetDiagnosticWidget(QWidget):
         probe_fw_layout = QVBoxLayout()
         probe_fw_layout.setSpacing(10)
 
-        # فقط دکمه آپدیت آنلاین
         self.btn_online_update = QPushButton("🌐 ONE-CLICK ONLINE UPDATE")
-        self.btn_online_update.setFixedHeight(40)
+        self.btn_online_update.setFixedHeight(42)
+        # استایل دکمه آپدیت (سبز صنعتی) که روی استایل اصلی دکمه‌ها بازنویسی می‌شود
         self.btn_online_update.setStyleSheet(
-            "background-color: #27AE60; color: white; font-weight: bold; font-size: 12px; border-radius: 4px;"
+            """
+            QPushButton {
+                background-color: #059669;
+                color: white; 
+                font-weight: bold; 
+                font-size: 12px; 
+                border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #10B981; }
+            QPushButton:pressed { background-color: #047857; }
+            QPushButton:disabled { background-color: #334155; color: #94A3B8; }
+            """
         )
         self.btn_online_update.clicked.connect(self._start_online_update)
 
         probe_fw_layout.addWidget(self.btn_online_update)
         probe_fw_box.setLayout(probe_fw_layout)
 
-        # اضافه کردن کادر به لایه اصلی ویجت
         main_layout.addWidget(probe_fw_box)
         main_layout.addStretch()
         scroll_area.setWidget(scroll_content)
@@ -216,7 +286,8 @@ class TargetDiagnosticWidget(QWidget):
         self.btn_inspect.setEnabled(False)
         self.cmb_interface.setEnabled(False)
         self.lbl_status.setText(f"Status: PROBING ({selected_iface})...")
-        self.lbl_status.setStyleSheet("color: #F39C12; font-weight: bold;")
+        self.lbl_status.setStyleSheet(
+            "color: #F59E0B; font-weight: bold; font-size: 13px;")
 
         self._probe_thread = QThread()
         self._probe_worker = TargetDiagnosticWorker(
@@ -242,7 +313,8 @@ class TargetDiagnosticWidget(QWidget):
         self.btn_inspect.setEnabled(False)
         self.cmb_interface.setEnabled(False)
         self.lbl_status.setText("Status: READING CORE REGISTERS...")
-        self.lbl_status.setStyleSheet("color: #F39C12; font-weight: bold;")
+        self.lbl_status.setStyleSheet(
+            "color: #F59E0B; font-weight: bold; font-size: 13px;")
         self.txt_diag_display.clear()
 
         self._probe_thread = QThread()
@@ -270,7 +342,8 @@ class TargetDiagnosticWidget(QWidget):
 
         if info.get("success"):
             self.lbl_status.setText("Status: CONNECTED / READY")
-            self.lbl_status.setStyleSheet("color: #2ECC71; font-weight: bold;")
+            self.lbl_status.setStyleSheet(
+                "color: #10B981; font-weight: bold; font-size: 13px;")
             self.lbl_probe_sn.setText(
                 f"Probe/Device: {info.get('probe_serial', 'N/A')}")
             self.lbl_part_num.setText(
@@ -282,13 +355,14 @@ class TargetDiagnosticWidget(QWidget):
 
             if "UNLOCKED" in rdp_text or "LEVEL 0" in rdp_text:
                 self.lbl_rdp.setStyleSheet(
-                    "font-family: Consolas; font-size: 11px; color: #2ECC71; font-weight: bold;")
+                    "font-family: Consolas, monospace; font-size: 11px; color: #10B981; font-weight: bold;")
             else:
                 self.lbl_rdp.setStyleSheet(
-                    "font-family: Consolas; font-size: 11px; color: #E74C3C; font-weight: bold;")
+                    "font-family: Consolas, monospace; font-size: 11px; color: #EF4444; font-weight: bold;")
         else:
             self.lbl_status.setText("Status: FAULT / NO TARGET")
-            self.lbl_status.setStyleSheet("color: #E74C3C; font-weight: bold;")
+            self.lbl_status.setStyleSheet(
+                "color: #EF4444; font-weight: bold; font-size: 13px;")
             err = info.get("error", "Unknown Error")
             self._append_diag_log(f"[ERROR] Detection failed: {err}")
 
@@ -300,14 +374,16 @@ class TargetDiagnosticWidget(QWidget):
 
         if not status.get("success"):
             self.lbl_status.setText("Status: DIAGNOSTIC FAILED")
-            self.lbl_status.setStyleSheet("color: #E74C3C; font-weight: bold;")
+            self.lbl_status.setStyleSheet(
+                "color: #EF4444; font-weight: bold; font-size: 13px;")
             err = status.get("error", "Unknown Diagnostic Error")
             self.txt_diag_display.setPlainText(
                 f"Failed to inspect target: {err}")
             return
 
         self.lbl_status.setText("Status: INSPECTION COMPLETE")
-        self.lbl_status.setStyleSheet("color: #2ECC71; font-weight: bold;")
+        self.lbl_status.setStyleSheet(
+            "color: #10B981; font-weight: bold; font-size: 13px;")
 
         dhcsr_flags = status.get("dhcsr", {})
         demcr_flags = status.get("demcr", {})
@@ -340,10 +416,10 @@ class TargetDiagnosticWidget(QWidget):
         if self._probe_thread and self._probe_thread.isRunning():
             self._probe_thread.quit()
             self._probe_thread.wait()
+
     # -----------------------------------------------------------------
     # Firmware Update Logic (Online Only)
     # -----------------------------------------------------------------
-
     def _start_online_update(self) -> None:
         """Handles the online firmware download and update process."""
 

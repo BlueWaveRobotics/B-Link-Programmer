@@ -180,7 +180,7 @@ class SidebarNavWidget(QWidget):
 
         # 2. Internal QListWidget for Navigation Items
         self.list_widget = QListWidget()
-        self.list_widget.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        self.list_widget.setFont(QFont("Segoe UI", 11, QFont.Weight.Normal))
         self.list_widget.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.list_widget.setStyleSheet(
             """
@@ -189,10 +189,10 @@ class SidebarNavWidget(QWidget):
                 border: none;
                 border-right: 1px solid #334155;
                 outline: 0;
-                padding-top: 6px;
+                padding-top: 8px;
             }
             QListWidget::item {
-                color: #94A3B8;
+                color: #E2E8F0;  
                 padding: 12px 14px;
                 margin: 4px 6px;
                 border-radius: 6px;
@@ -204,7 +204,7 @@ class SidebarNavWidget(QWidget):
             QListWidget::item:selected {
                 background-color: #0284C7;
                 color: #FFFFFF;
-                font-weight: bold;
+                font-weight: bold; /
             }
             """
         )
