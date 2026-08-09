@@ -563,6 +563,9 @@ class SessionManager:
         return info
 
     def probe_target_info(self, clock_freq: int = 1000000) -> Dict[str, Any]:
+        from pyocd.core.session import Session
+        from pyocd.core.helpers import ConnectHelper
+
         """
         Lightweight attach session to retrieve probe unique ID,
         MCU part number, and DPIDR / USB ID without resetting the target.
@@ -642,6 +645,9 @@ class SessionManager:
     def _open_session(
         self, freq: int, mode: str, target_name: Optional[str]
     ) -> bool:
+        from pyocd.core.helpers import ConnectHelper
+        from pyocd.core.session import Session
+
         options: Dict[str, Any] = {
             "connect_mode": mode,
             "frequency": freq,
@@ -703,6 +709,8 @@ class SessionManager:
         return False
 
     def check_swd_sanity(self) -> Optional[int]:
+        from pyocd.core.session import Session
+
         """Read DPIDR at address 0x0 to verify physical SWD bus integrity."""
         if "USB" in self.interface_type:
             logger.info("SWD Sanity bypassed (Direct USB mode active).")
@@ -981,6 +989,8 @@ class SessionManager:
             return False
 
     def close(self) -> None:
+        from pyocd.core.session import Session
+
         """Close SWD or USB session and release probe resources."""
         if "USB" in self.interface_type:
             self.is_usb_connected = False

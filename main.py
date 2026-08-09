@@ -6,10 +6,19 @@ persistent right-hand diagnostic panel, collapsible bottom log console,
 and a real-time hardware status bar.
 """
 
+from src.common import get_logger, GlobalStatusBar
+from src.features.script_hooks.widget import ScriptHooksWidget
+from src.features.firmware_merger.widget import FirmwareMergerWidget
+from src.features.batch_programmer.widget import BatchProgrammerWidget
+from src.features.target_diagnostic.widget import TargetDiagnosticWidget
+from src.features.serial_monitor.widget import SerialMonitorWidget
+from src.features.option_bytes.widget import OptionBytesWidget
+from src.features.production_programmer.widget import ProductionProgrammerWidget
+from src.features.memory_viewer.widget import MemoryViewerWidget
 import sys
 from typing import Optional
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QPalette, QColor
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -24,20 +33,107 @@ from PySide6.QtWidgets import (
     QPushButton,
 )
 
-# Import feature widgets cleanly from modular architecture
-from src.features.memory_viewer.widget import MemoryViewerWidget
-from src.features.production_programmer.widget import ProductionProgrammerWidget
-from src.features.option_bytes.widget import OptionBytesWidget
-from src.features.serial_monitor.widget import SerialMonitorWidget
-from src.features.target_diagnostic.widget import TargetDiagnosticWidget
-from src.features.batch_programmer.widget import BatchProgrammerWidget
-from src.features.firmware_merger.widget import FirmwareMergerWidget
-from src.features.script_hooks.widget import ScriptHooksWidget
-
-# Import common infrastructure
-from src.common import get_logger, GlobalStatusBar
+import libusb_package
+libusb_package.find()
 
 logger = get_logger("MainApplication")
+
+# ==============================================================================
+# BLUE INDUSTRIAL STATIC THEME (QSS)
+# ==============================================================================
+BLUE_INDUSTRIAL_QSS = """
+/* 1. Global Application Baseline */
+QWidget {
+    background-color: #0F172A;
+    color: #F8FAFC;
+    font-family: "Segoe UI", "Tahoma", sans-serif;
+    font-size: 13px;
+    selection-background-color: #0284C7;
+    selection-color: #FFFFFF;
+}
+
+/* 2. Main Window & Docking Splitters */
+QMainWindow {
+    background-color: #0F172A;
+}
+
+QMainWindow::separator {
+    background-color: #1E293B;
+    width: 3px;
+    height: 3px;
+}
+
+QMainWindow::separator:hover {
+    background-color: #0284C7;
+}
+
+/* 3. Dock Widgets (Right Diagnostic & Bottom Log Console) */
+QDockWidget {
+    titlebar-close-icon: url(close.png);
+    titlebar-normal-icon: url(undock.png);
+    color: #38BDF8;
+    font-weight: bold;
+}
+
+QDockWidget::title {
+    background-color: #1E293B;
+    padding: 6px 10px;
+    border-bottom: 2px solid #0284C7;
+    text-align: left;
+}
+
+/* 4. Scrollbars (Custom Industrial Blue Scrollbars) */
+QScrollBar:vertical {
+    border: none;
+    background: #0F172A;
+    width: 10px;
+    margin: 0px;
+}
+
+QScrollBar::handle:vertical {
+    background: #334155;
+    min-height: 20px;
+    border-radius: 4px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: #0284C7;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+QScrollBar:horizontal {
+    border: none;
+    background: #0F172A;
+    height: 10px;
+    margin: 0px;
+}
+
+QScrollBar::handle:horizontal {
+    background: #334155;
+    min-width: 20px;
+    border-radius: 4px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background: #0284C7;
+}
+
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    width: 0px;
+}
+
+/* 5. Tooltips */
+QToolTip {
+    background-color: #1E293B;
+    color: #38BDF8;
+    border: 1px solid #0284C7;
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+"""
 
 
 class SidebarNavWidget(QWidget):
@@ -57,25 +153,25 @@ class SidebarNavWidget(QWidget):
         layout.setSpacing(0)
 
         # 1. Toggle Button (Hamburger Menu for collapsing sidebar)
-        self.toggle_btn = QPushButton("☰")
+        self.toggle_btn = QPushButton("☰   Menu")
         self.toggle_btn.setFixedHeight(42)
         self.toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.toggle_btn.setStyleSheet(
             """
             QPushButton {
-                background-color: #1A1A1A;
-                color: #007ACC;
+                background-color: #1E293B;
+                color: #38BDF8;
                 border: none;
-                border-bottom: 1px solid #333333;
-                border-right: 1px solid #333333;
+                border-bottom: 1px solid #334155;
+                border-right: 1px solid #334155;
                 text-align: left;
                 padding-left: 16px;
                 font-weight: bold;
                 font-size: 13px;
             }
             QPushButton:hover {
-                background-color: #2D2D30;
-                color: #66C2FF;
+                background-color: #0284C7;
+                color: #FFFFFF;
             }
             """
         )
@@ -89,24 +185,24 @@ class SidebarNavWidget(QWidget):
         self.list_widget.setStyleSheet(
             """
             QListWidget {
-                background-color: #1E1E1E;
+                background-color: #0F172A;
                 border: none;
-                border-right: 1px solid #333333;
+                border-right: 1px solid #334155;
                 outline: 0;
                 padding-top: 6px;
             }
             QListWidget::item {
-                color: #CCCCCC;
+                color: #94A3B8;
                 padding: 12px 14px;
                 margin: 4px 6px;
                 border-radius: 6px;
             }
             QListWidget::item:hover {
-                background-color: #2D2D30;
-                color: #FFFFFF;
+                background-color: #1E293B;
+                color: #38BDF8;
             }
             QListWidget::item:selected {
-                background-color: #007ACC;
+                background-color: #0284C7;
                 color: #FFFFFF;
                 font-weight: bold;
             }
@@ -142,7 +238,7 @@ class SidebarNavWidget(QWidget):
                 item.setText(icon_str)
         else:
             self.setFixedWidth(210)
-            self.toggle_btn.setText("☰  Menu")
+            self.toggle_btn.setText("☰   Menu")
             for i in range(self.list_widget.count()):
                 item = self.list_widget.item(i)
                 icon_str, full_text = item.data(Qt.ItemDataRole.UserRole)
@@ -181,7 +277,8 @@ class MainWindow(QMainWindow):
         self._init_bottom_log_dock()
 
         self.diagnostic_widget.interface_changed.connect(
-            self.on_global_interface_changed)
+            self.on_global_interface_changed
+        )
 
         # Mount global real-time DAPLink status bar
         self.status_bar = GlobalStatusBar(self)
@@ -193,15 +290,12 @@ class MainWindow(QMainWindow):
         """به‌روزرسانی وضعیت سراسری و مطلع کردن تمام ماژول‌ها"""
         self.current_interface = new_interface
 
-        # مطلع کردن تب مشاهده حافظه
         if hasattr(self.memory_widget, "set_interface_type"):
             self.memory_widget.set_interface_type(new_interface)
 
-        # مطلع کردن تب پروگرامر
         if hasattr(self.programmer_widget, "set_interface_type"):
             self.programmer_widget.set_interface_type(new_interface)
 
-        # مطلع کردن تب آپشن بایت‌ها
         if hasattr(self.ob_widget, "set_interface_type"):
             self.ob_widget.set_interface_type(new_interface)
 
@@ -275,17 +369,16 @@ class MainWindow(QMainWindow):
         self.addDockWidget(
             Qt.DockWidgetArea.RightDockWidgetArea, self.right_dock
         )
-        # Explicitly show the right diagnostic panel
         self.right_dock.show()
 
     def _init_bottom_log_dock(self) -> None:
-        """Mounts a collapsible shared log console inside a bottom dock."""
+        """Mounts a locked, collapsible shared log console inside a bottom dock."""
         self.log_dock = QDockWidget("Application & Target Log Console", self)
         self.log_dock.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea)
+
+        # قفل کردن داک برای جلوگیری از جدا شدن (Floating) یا جابجایی (Movable)
         self.log_dock.setFeatures(
             QDockWidget.DockWidgetFeature.DockWidgetClosable
-            | QDockWidget.DockWidgetFeature.DockWidgetMovable
-            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
         )
 
         self.log_console = QPlainTextEdit()
@@ -295,10 +388,11 @@ class MainWindow(QMainWindow):
         self.log_console.setStyleSheet(
             """
             QPlainTextEdit {
-                background-color: #121212;
-                color: #D4D4D4;
-                border: 1px solid #333333;
-                selection-background-color: #264F78;
+                background-color: #020617;
+                color: #38BDF8;
+                border: 1px solid #1E293B;
+                selection-background-color: #0284C7;
+                padding: 6px;
             }
             """
         )
@@ -312,13 +406,9 @@ class MainWindow(QMainWindow):
         )
 
     def closeEvent(self, event) -> None:
-        """
-        Intercept window close event to ensure graceful shutdown of all
-        active background QThreads across feature modules and status bar.
-        """
+        """Intercept window close event for graceful thread termination."""
         logger.info(
-            "Application shutting down. Terminating background threads..."
-        )
+            "Application shutting down. Terminating background threads...")
         try:
             active_modules = [
                 getattr(self, "diagnostic_widget", None),
@@ -356,7 +446,30 @@ def main() -> None:
     )
 
     app = QApplication(sys.argv)
-    app.setStyle("Fusion")  # Consistent industrial look across OS platforms
+
+    # 1. تنظیم استایل عمومی Fusion جهت جلوگیری از تاثیر پذیری از تم ویندوز
+    app.setStyle("Fusion")
+
+    # 2. قفل کردن پالت رنگی اختصاصی آبی تاریک روی کل برنامه
+    dark_palette = QPalette()
+    dark_palette.setColor(QPalette.ColorRole.Window, QColor("#0F172A"))
+    dark_palette.setColor(QPalette.ColorRole.WindowText, QColor("#F8FAFC"))
+    dark_palette.setColor(QPalette.ColorRole.Base, QColor("#020617"))
+    dark_palette.setColor(QPalette.ColorRole.AlternateBase, QColor("#1E293B"))
+    dark_palette.setColor(QPalette.ColorRole.ToolTipBase, QColor("#1E293B"))
+    dark_palette.setColor(QPalette.ColorRole.ToolTipText, QColor("#38BDF8"))
+    dark_palette.setColor(QPalette.ColorRole.Text, QColor("#F8FAFC"))
+    dark_palette.setColor(QPalette.ColorRole.Button, QColor("#1E293B"))
+    dark_palette.setColor(QPalette.ColorRole.ButtonText, QColor("#F8FAFC"))
+    dark_palette.setColor(QPalette.ColorRole.BrightText, QColor("#FF4D4D"))
+    dark_palette.setColor(QPalette.ColorRole.Highlight, QColor("#0284C7"))
+    dark_palette.setColor(
+        QPalette.ColorRole.HighlightedText, QColor("#FFFFFF"))
+
+    app.setPalette(dark_palette)
+
+    # 3. اعمال استایل جامع QSS به کل برنامه
+    app.setStyleSheet(BLUE_INDUSTRIAL_QSS)
 
     window = MainWindow()
     window.show()
