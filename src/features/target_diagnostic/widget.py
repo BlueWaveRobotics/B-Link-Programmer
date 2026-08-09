@@ -178,43 +178,25 @@ class TargetDiagnosticWidget(QWidget):
         main_layout.addWidget(diag_group)
 
         # -------------------------------------------------------------
-        # 3. B-Link Probe Firmware Update Section
+        # 3. B-Link Probe Firmware Update (Cloud OTA)
         # -------------------------------------------------------------
         probe_fw_box = QGroupBox("B-Link Probe Firmware Update")
         probe_fw_layout = QVBoxLayout()
         probe_fw_layout.setSpacing(10)
 
-        # 1. مسیر فایل و دکمه Browse
-        path_layout = QHBoxLayout()
-        self.txt_probe_fw_path = QLineEdit()
-        self.txt_probe_fw_path.setPlaceholderText(
-            "Select firmware binary (.bin)...")
-        self.txt_probe_fw_path.setReadOnly(True)
-        self.txt_probe_fw_path.setStyleSheet(
-            "background-color: #2D2D30; color: #FFFFFF; border: 1px solid #444444; border-radius: 4px; padding: 4px;"
+        # فقط دکمه آپدیت آنلاین
+        self.btn_online_update = QPushButton("🌐 ONE-CLICK ONLINE UPDATE")
+        self.btn_online_update.setFixedHeight(40)
+        self.btn_online_update.setStyleSheet(
+            "background-color: #27AE60; color: white; font-weight: bold; font-size: 12px; border-radius: 4px;"
         )
+        self.btn_online_update.clicked.connect(self._start_online_update)
 
-        self.btn_browse_probe_fw = QPushButton("Browse...")
-        self.btn_browse_probe_fw.clicked.connect(self._browse_probe_firmware)
-
-        path_layout.addWidget(self.txt_probe_fw_path)
-        path_layout.addWidget(self.btn_browse_probe_fw)
-        probe_fw_layout.addLayout(path_layout)
-
-        # 2. دکمه شروع آپدیت
-        self.btn_update_probe_fw = QPushButton("🔄 UPDATE PROBE FIRMWARE")
-        self.btn_update_probe_fw.setFixedHeight(35)
-        self.btn_update_probe_fw.setStyleSheet(
-            "background-color: #8E44AD; color: white; font-weight: bold; font-size: 11px; border-radius: 4px;"
-        )
-        self.btn_update_probe_fw.clicked.connect(
-            self._start_probe_firmware_update)
-
-        probe_fw_layout.addWidget(self.btn_update_probe_fw)
-
+        probe_fw_layout.addWidget(self.btn_online_update)
         probe_fw_box.setLayout(probe_fw_layout)
-        main_layout.addWidget(probe_fw_box)
 
+        # اضافه کردن کادر به لایه اصلی ویجت
+        main_layout.addWidget(probe_fw_box)
         main_layout.addStretch()
         scroll_area.setWidget(scroll_content)
         layout.addWidget(scroll_area)
@@ -358,52 +340,38 @@ class TargetDiagnosticWidget(QWidget):
         if self._probe_thread and self._probe_thread.isRunning():
             self._probe_thread.quit()
             self._probe_thread.wait()
-
     # -----------------------------------------------------------------
-    # Firmware Update Logic
+    # Firmware Update Logic (Online Only)
     # -----------------------------------------------------------------
 
-    def _browse_probe_firmware(self) -> None:
-        """Opens file dialog to select B-Link probe firmware binary."""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select B-Link Probe Firmware Binary",
-            "",
-            "Binary Files (*.bin);;Hex Files (*.hex);;All Files (*.*)",
-        )
-        if file_path:
-            self.txt_probe_fw_path.setText(file_path)
+    def _start_online_update(self) -> None:
+        """Handles the online firmware download and update process."""
 
-    def _start_probe_firmware_update(self) -> None:
-        """Executes B-Link probe firmware update routine."""
-        fw_path = self.txt_probe_fw_path.text().strip()
-
-        if not fw_path:
-            QMessageBox.warning(
-                self, "File Warning", "Please select a firmware binary file (.bin) first."
-            )
-            return
-
-        # پیام راهنما به کاربر برای رفتن به حالت بوت لودر
         reply = QMessageBox.question(
             self,
-            "Confirm Probe Update",
-            "To update B-Link Probe firmware:\n\n"
+            "Confirm Online Update",
+            "This will download and install the latest B-Link firmware from the server.\n\n"
             "1. Hold the RESET button on your B-Link Probe.\n"
             "2. Connect it to USB (Drive named 'MAINTENANCE' should appear).\n"
-            "3. Click 'Yes' to proceed.\n\n"
-            "Are you ready to update?",
+            "3. Ensure you have an active internet connection.\n\n"
+            "Proceed with online update?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
         )
 
         if reply == QMessageBox.StandardButton.Yes:
-            # فراخوانی سرویسی که در گام قبل ساختیم
-            success, message = ProbeFirmwareUpdateService.update_firmware(
-                fw_path)
+            self.btn_online_update.setText("⏳ DOWNLOADING & UPDATING...")
+            self.btn_online_update.setEnabled(False)
+
+            # فراخوانی متد آنلاین که ساختیم:
+            success, message = ProbeFirmwareUpdateService.update_firmware_online(
+                "update_config.json")
+
+            self.btn_online_update.setText("🌐 ONE-CLICK ONLINE UPDATE")
+            self.btn_online_update.setEnabled(True)
 
             if success:
-                QMessageBox.information(self, "Update Successful", message)
-                self.txt_probe_fw_path.clear()
+                QMessageBox.information(
+                    self, "Online Update Successful", message)
             else:
-                QMessageBox.critical(self, "Update Failed", message)
+                QMessageBox.critical(self, "Online Update Failed", message)
