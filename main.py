@@ -180,6 +180,9 @@ class SidebarNavWidget(QWidget):
 
         # 2. Internal QListWidget for Navigation Items
         self.list_widget = QListWidget()
+        self.list_widget.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.list_widget.setTextElideMode(Qt.TextElideMode.ElideRight)
         self.list_widget.setFont(QFont("Segoe UI", 11, QFont.Weight.Normal))
         self.list_widget.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.list_widget.setStyleSheet(
@@ -388,14 +391,15 @@ class MainWindow(QMainWindow):
         self.log_console.setStyleSheet(
             """
             QPlainTextEdit {
-                background-color: #020617;
-                color: #38BDF8;
+                background-color: #050505; 
+                color: #E2E8F0;
                 border: 1px solid #1E293B;
                 selection-background-color: #0284C7;
                 padding: 6px;
             }
             """
         )
+
         self.log_console.appendPlainText(
             "[INFO] B-Link DAPLink Industrial Suite initialized. Ready for target connection."
         )
