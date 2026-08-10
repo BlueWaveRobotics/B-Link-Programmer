@@ -94,6 +94,9 @@ class GlobalStatusBar(QStatusBar):
     probe model, and unique hardware serial number.
     """
 
+    # ⬅️ Added Signal to notify the rest of the application (like TargetDiagnosticWidget)
+    probe_status_changed = Signal(bool, str, str)
+
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._monitor_thread: Optional[ProbeMonitorWorker] = None
@@ -193,6 +196,9 @@ class GlobalStatusBar(QStatusBar):
             self.lbl_probe_name.setText("Probe: No Hardware")
             self.lbl_probe_id.setText("UID: --")
             self.showMessage("Warning: DAPLink probe disconnected.", 4000)
+
+        # ⬅️ Emit the global signal to lock/unlock the right panel
+        self.probe_status_changed.emit(connected, name, uid)
 
     def shutdown_threads(self) -> None:
         """

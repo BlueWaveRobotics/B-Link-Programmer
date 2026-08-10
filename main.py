@@ -297,6 +297,7 @@ class MainWindow(QMainWindow):
         self.ob_widget = OptionBytesWidget()
         self.serial_widget = SerialMonitorWidget()
         self.diagnostic_widget = TargetDiagnosticWidget()
+        self.diagnostic_widget.setMinimumWidth(380)
         self.batch_widget = BatchProgrammerWidget()
         self.merger_widget = FirmwareMergerWidget()
         self.script_hooks_widget = ScriptHooksWidget(self)
@@ -306,13 +307,17 @@ class MainWindow(QMainWindow):
         self._init_right_diagnostic_dock()
         self._init_bottom_log_dock()
 
+        # ⬅️ اول استاتوس بار را می‌سازیم
+        self.status_bar = GlobalStatusBar(self)
+        self.setStatusBar(self.status_bar)
+
+        # ⬅️ حالا که ساخته شد، سیگنال‌هایش را وصل می‌کنیم
         self.diagnostic_widget.interface_changed.connect(
             self.on_global_interface_changed
         )
-
-        # Mount global real-time DAPLink status bar
-        self.status_bar = GlobalStatusBar(self)
-        self.setStatusBar(self.status_bar)
+        self.status_bar.probe_status_changed.connect(
+            self.diagnostic_widget.on_global_probe_status_changed
+        )
 
         logger.info("Industrial 4-pane workspace initialized successfully.")
 
