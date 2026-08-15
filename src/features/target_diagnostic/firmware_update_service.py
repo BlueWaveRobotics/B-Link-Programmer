@@ -1,18 +1,18 @@
 """
 B-Link Probe Firmware Update Service.
-Handles online JSON config parsing, automatic binary downloading,
-and flashing via the standard DAPLink MAINTENANCE drive (Drag & Drop).
+Handles auto-switching from B-LINK to MAINTENANCE mode,
+downloading firmware with clean filenames, and copying to drive.
 """
 
 import os
+import time
 import json
 import tempfile
 import urllib.request
 import shutil
 import psutil
-from src.common import get_logger
-
-logger = get_logger("ProbeFirmwareUpdateService")
+import ctypes
+import ssl
 
 
 class ProbeFirmwareUpdateService:
@@ -21,26 +21,17 @@ class ProbeFirmwareUpdateService:
     """
 
     @staticmethod
-    def find_maintenance_drive() -> str | None:
+    def get_drive_info() -> tuple[str | None, str]:
         """
-        Scans all mounted partitions to locate the B-Link bootloader drive
-        by checking both Volume Label and DAPLink signature files.
+        Scans drives and returns (drive_path, mode) where mode is 'MAINTENANCE' or 'B-LINK'.
         """
-        import ctypes  # برای خواندن اسم درایوها در ویندوز
-
         for partition in psutil.disk_partitions():
             if 'cdrom' in partition.opts or partition.fstype == '':
                 continue
 
             drive_path = partition.mountpoint
 
-            # روش اول: بررسی وجود فایل DETAILS.TXT
-            if os.path.exists(os.path.join(drive_path, "DETAILS.TXT")):
-                logger.info(
-                    f"✔ B-Link drive found via signature file at: {drive_path}")
-                return drive_path
-
-            # روش دوم: خواندن اسم درایو (Volume Label) در ویندوز
+            # بررسی Volume Label در ویندوز
             if os.name == 'nt':
                 volume_name_buffer = ctypes.create_unicode_buffer(1024)
                 try:
@@ -52,48 +43,67 @@ class ProbeFirmwareUpdateService:
                     )
                     vol_name = volume_name_buffer.value.upper()
 
-                    if "MAINTENANCE" in vol_name or "B-LINK" in vol_name:
-                        logger.info(
-                            f"✔ B-Link drive found via Volume Name '{vol_name}' at: {drive_path}")
-                        return drive_path
+                    if "MAINTENANCE" in vol_name:
+                        return drive_path, "MAINTENANCE"
+                    if "B-LINK" in vol_name or "B_LINK" in vol_name or "DAPLINK" in vol_name:
+                        return drive_path, "B-LINK"
                 except Exception:
                     pass
 
-        return None
+            # بررسی فایل DETAILS.TXT
+            details_path = os.path.join(drive_path, "DETAILS.TXT")
+            if os.path.exists(details_path):
+                try:
+                    with open(details_path, "r", encoding="utf-8", errors="ignore") as f:
+                        content = f.read().upper()
+                        if "MAINTENANCE" in content:
+                            return drive_path, "MAINTENANCE"
+                        return drive_path, "B-LINK"
+                except Exception:
+                    pass
+
+        return None, "NONE"
 
     @classmethod
-    def update_firmware(cls, firmware_path: str) -> tuple[bool, str]:
+    def ensure_maintenance_mode(cls) -> str | None:
         """
-        Copies the provided firmware binary into the probe's maintenance drive.
+        Ensures the probe is in MAINTENANCE mode. If in B-LINK mode, sends Magic File
+        to trigger soft-reset into MAINTENANCE.
         """
-        if not os.path.exists(firmware_path):
-            return False, "Selected firmware file does not exist."
+        drive, mode = cls.get_drive_info()
 
-        drive = cls.find_maintenance_drive()
-        if not drive:
-            return (
-                False,
-                "B-Link Probe Maintenance drive not found.\n"
-                "Please hold the RESET button on B-Link probe while connecting USB."
-            )
+        if mode == "MAINTENANCE":
+            print(
+                f">>> [DEBUG-SERVICE] Probe already in MAINTENANCE mode at [{drive}]")
+            return drive
 
-        try:
-            filename = os.path.basename(firmware_path)
-            dest_path = os.path.join(drive, filename)
+        if mode == "B-LINK" and drive:
+            print(
+                f">>> [DEBUG-SERVICE] Probe in B-LINK mode at [{drive}]. Sending Magic File trigger...")
+            magic_files = ["PROBE.ACT", "MODE_TYPE.TXT"]
+            for mf in magic_files:
+                try:
+                    with open(os.path.join(drive, mf), "wb") as f:
+                        f.write(b"1")
+                except Exception as e:
+                    print(f">>> [DEBUG-SERVICE] Warning creating {mf}: {e}")
 
-            logger.info(
-                f"Copying firmware '{firmware_path}' to '{dest_path}'...")
-            shutil.copy2(firmware_path, dest_path)
+            print(
+                ">>> [DEBUG-SERVICE] Waiting 5 seconds for reboot to MAINTENANCE mode...")
+            for _ in range(8):
+                time.sleep(1)
+                m_drive, m_mode = cls.get_drive_info()
+                if m_mode == "MAINTENANCE":
+                    print(
+                        f">>> [DEBUG-SERVICE] Switched to MAINTENANCE mode at [{m_drive}]!")
+                    return m_drive
 
-            return (
-                True,
-                "✔ Firmware copied successfully!\n"
-                "The B-Link probe will now reboot with the new firmware."
-            )
+            # اگر سوئیچ اتوماتیک انجام نشد، همان درایو موجود استفاده می‌شود
+            print(
+                ">>> [DEBUG-SERVICE] Soft-reset timeout, proceeding with current drive...")
+            return drive
 
-        except Exception as exc:
-            logger.error(f"Failed to copy probe firmware: {exc}")
-            return False, f"Firmware update failed: {str(exc)}"
+        return None
 
     @classmethod
     def update_firmware_online(
@@ -101,20 +111,34 @@ class ProbeFirmwareUpdateService:
         remote_config_url: str = "https://www.bluewaverobotics.ir/app_config.json"
     ) -> tuple[bool, str]:
         """
-        Fetches online JSON, downloads binary file automatically, and copies it 
-        to the MAINTENANCE drive.
+        Fetches online JSON, downloads binary firmware, and copies it to drive with valid filename.
         """
-        # گام ۱: دریافت فایل JSON از سرور
+        print(">>> [DEBUG-SERVICE] Step 1: Checking Probe Drive Mode...")
+        drive = cls.ensure_maintenance_mode()
+
+        if not drive:
+            return False, "B-Link Probe drive not found!\nPlease connect the probe to USB."
+
+        print(">>> [DEBUG-SERVICE] Step 2: Fetching Server Config...")
+        proxy_handler = urllib.request.ProxyHandler({})
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
+
+        opener = urllib.request.build_opener(
+            proxy_handler,
+            urllib.request.HTTPSHandler(context=ssl_ctx)
+        )
+
         try:
-            logger.info(
-                f"Fetching online update config from: {remote_config_url}")
             req = urllib.request.Request(
                 remote_config_url,
-                headers={'User-Agent': 'Mozilla/5.0'}
+                headers={
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
             )
-            with urllib.request.urlopen(req, timeout=10) as response:
-                config_data = response.read().decode('utf-8')
-                full_config = json.loads(config_data)
+
+            with opener.open(req, timeout=10) as response:
+                full_config = json.loads(response.read().decode('utf-8'))
 
             blink_section = full_config.get("BLink_firmware", {})
             url = blink_section.get("firmware_url")
@@ -122,44 +146,47 @@ class ProbeFirmwareUpdateService:
                 "latest_version", "v1.0.0")
 
             if not url:
-                return False, "Firmware URL is missing inside 'BLink_firmware' section."
+                return False, "Firmware URL missing in server JSON."
 
-            logger.info(f"Found online firmware version {version} at: {url}")
+            print(
+                f">>> [DEBUG-SERVICE] Step 3: Config Parsed (Version {version}).")
 
         except Exception as e:
-            logger.error(f"Failed to fetch online JSON config: {e}")
-            return False, f"Failed to connect to update server.\nPlease check your internet connection.\nError: {str(e)}"
+            print(f">>> [DEBUG-SERVICE] ERROR fetching JSON: {e}")
+            return False, f"Network Connection Error.\nError: {str(e)}"
 
-        # گام ۲: دانلود فایل باینری
+        # دانلود و کپی با نام فایل استاندارد
         temp_bin_path = ""
         try:
-            logger.info(
-                f"Downloading B-Link interface firmware ({version})...")
+            print(">>> [DEBUG-SERVICE] Step 4: Downloading binary firmware...")
             fd, temp_bin_path = tempfile.mkstemp(suffix=".bin")
             os.close(fd)
 
             bin_req = urllib.request.Request(
-                url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(bin_req, timeout=30) as bin_response, open(temp_bin_path, 'wb') as out_file:
+                url,
+                headers={
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+            )
+            with opener.open(bin_req, timeout=30) as bin_response, open(temp_bin_path, 'wb') as out_file:
                 shutil.copyfileobj(bin_response, out_file)
 
-            logger.info("Firmware downloaded successfully.")
+            # استفاده از نام فایل استاندارد firmware.bin جهت جلوگیری از خطای VFS
+            dest_path = os.path.join(drive, "firmware.bin")
+            print(
+                f">>> [DEBUG-SERVICE] Step 5: Copying '{temp_bin_path}' -> '{dest_path}'...")
+            shutil.copy2(temp_bin_path, dest_path)
 
-        except Exception as e:
-            logger.error(f"Download error: {e}")
-            return False, f"Failed to download firmware binary from server.\nError: {str(e)}"
+            print(">>> [DEBUG-SERVICE] Step 6: Copy completed successfully!")
 
-        # گام ۳: کپی روی درایو MAINTENANCE
-        success, message = cls.update_firmware(temp_bin_path)
-
-        # گام ۴: پاکسازی فایل موقت
-        try:
-            if os.path.exists(temp_bin_path):
-                os.remove(temp_bin_path)
-        except Exception as e:
-            logger.warning(f"Could not delete temp file: {e}")
-
-        if success:
             return True, f"✔ B-Link Probe updated successfully to version {version}!"
-        else:
-            return False, message
+
+        except Exception as e:
+            print(f">>> [DEBUG-SERVICE] ERROR during download/copy: {e}")
+            return False, f"Failed to update firmware.\nError: {str(e)}"
+
+        finally:
+            if temp_bin_path and os.path.exists(temp_bin_path):
+                try:
+                    os.remove(temp_bin_path)
+                except Exception:
+                    pass

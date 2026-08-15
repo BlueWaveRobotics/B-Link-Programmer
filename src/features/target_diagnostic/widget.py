@@ -513,26 +513,11 @@ class TargetDiagnosticWidget(QWidget):
 
     @Slot()
     def _start_online_update(self) -> None:
-        """Triggers 1-Click Online Update."""
-        # بررسی اتصال درایو MAINTENANCE قبل از دانلود
-        drive = ProbeFirmwareUpdateService.find_maintenance_drive()
-        if not drive:
-            QMessageBox.warning(
-                self,
-                "B-Link Probe Not Found",
-                "No connected B-Link probe detected in MAINTENANCE mode!\n\n"
-                "Please follow these steps:\n"
-                "1. Unplug B-Link probe from USB.\n"
-                "2. Hold the RESET button on the B-Link probe.\n"
-                "3. Connect it back to USB and click Online Update again."
-            )
-            return
-
+        """Triggers 1-Click Online Update safely."""
         reply = QMessageBox.question(
             self,
             "Confirm Online Update",
-            f"B-Link probe detected at drive [{drive}].\n\n"
-            "This will download the latest firmware from the server and flash it.\n"
+            "This will download the latest B-Link firmware from server and install it.\n"
             "Do you want to proceed?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
@@ -543,14 +528,19 @@ class TargetDiagnosticWidget(QWidget):
             self.btn_online_update.setEnabled(False)
             QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
 
-            # فراخوانی متد آپدیت استاندارد (Drag & Drop)
-            success, message = ProbeFirmwareUpdateService.update_firmware_online(
-                remote_config_url="https://www.bluewaverobotics.ir/app_config.json"
-            )
-
-            QApplication.restoreOverrideCursor()
-            self.btn_online_update.setText("🌐 ONE-CLICK ONLINE UPDATE")
-            self.btn_online_update.setEnabled(True)
+            try:
+                # اجرای فرآیند آپدیت
+                success, message = ProbeFirmwareUpdateService.update_firmware_online(
+                    remote_config_url="https://www.bluewaverobotics.ir/app_config.json"
+                )
+            except Exception as exc:
+                success = False
+                message = f"Unexpected Error: {str(exc)}"
+            finally:
+                # این بخش همیشه اجرا می‌شود تا UI فریز نشود
+                QApplication.restoreOverrideCursor()
+                self.btn_online_update.setText("🌐 ONE-CLICK ONLINE UPDATE")
+                self.btn_online_update.setEnabled(True)
 
             if success:
                 QMessageBox.information(
