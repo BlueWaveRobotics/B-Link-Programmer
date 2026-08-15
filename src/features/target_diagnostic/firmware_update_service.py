@@ -1,12 +1,13 @@
 """
 B-Link Probe Firmware Update Service.
-Handles auto-switching from B-LINK to MAINTENANCE mode,
-downloading firmware with clean filenames, and copying to drive.
+Flow: B-LINK drive -> START_BL.ACT -> MAINTENANCE -> validate -> copy -> verify.
 """
 
+from PySide6.QtCore import QThread, Signal
 import os
 import time
 import json
+import struct
 import tempfile
 import urllib.request
 import shutil
@@ -14,179 +15,228 @@ import psutil
 import ctypes
 import ssl
 
+# ─── این مقادیر را دقیقاً مطابق daplink_addr.h پروژه‌ی فریمورت تنظیم کن ───
+IF_ROM_START = 0x08003000   # DAPLINK_ROM_IF_START
+IF_ROM_END = 0x08010000   # انتهای فلش (F103RB=128K -> 0x08020000 و ...)
+RAM_START = 0x20000000
+RAM_END = 0x20005000   # F103CB/RB = 20KB
+
 
 class ProbeFirmwareUpdateService:
-    """
-    Automated Online Firmware Update Service for B-Link Probe.
-    """
 
+    # ────────────────────────── تشخیص درایو ──────────────────────────
     @staticmethod
     def get_drive_info() -> tuple[str | None, str]:
-        """
-        Scans drives and returns (drive_path, mode) where mode is 'MAINTENANCE' or 'B-LINK'.
-        """
+        """Returns (drive_path, mode): mode in {'MAINTENANCE', 'B-LINK', 'NONE'}"""
         for partition in psutil.disk_partitions():
             if 'cdrom' in partition.opts or partition.fstype == '':
                 continue
-
             drive_path = partition.mountpoint
 
-            # بررسی Volume Label در ویندوز
             if os.name == 'nt':
-                volume_name_buffer = ctypes.create_unicode_buffer(1024)
+                buf = ctypes.create_unicode_buffer(1024)
                 try:
                     ctypes.windll.kernel32.GetVolumeInformationW(
-                        ctypes.c_wchar_p(drive_path),
-                        volume_name_buffer,
-                        ctypes.sizeof(volume_name_buffer),
-                        None, None, None, None, 0
-                    )
-                    vol_name = volume_name_buffer.value.upper()
-
-                    if "MAINTENANCE" in vol_name:
+                        ctypes.c_wchar_p(drive_path), buf,
+                        ctypes.sizeof(buf), None, None, None, None, 0)
+                    vol = buf.value.upper()
+                    if "MAINTENANCE" in vol:
                         return drive_path, "MAINTENANCE"
-                    if "B-LINK" in vol_name or "B_LINK" in vol_name or "DAPLINK" in vol_name:
+                    if any(k in vol for k in ("B-LINK", "B_LINK", "BLINK", "DAPLINK")):
                         return drive_path, "B-LINK"
                 except Exception:
                     pass
 
-            # بررسی فایل DETAILS.TXT
-            details_path = os.path.join(drive_path, "DETAILS.TXT")
-            if os.path.exists(details_path):
+            details = os.path.join(drive_path, "DETAILS.TXT")
+            if os.path.exists(details):
                 try:
-                    with open(details_path, "r", encoding="utf-8", errors="ignore") as f:
+                    with open(details, "r", encoding="utf-8", errors="ignore") as f:
                         content = f.read().upper()
-                        if "MAINTENANCE" in content:
-                            return drive_path, "MAINTENANCE"
-                        return drive_path, "B-LINK"
+                    if "BOOTLOADER" in content.split("DAPLINK MODE:")[-1][:40] \
+                       or "MAINTENANCE" in content:
+                        return drive_path, "MAINTENANCE"
+                    return drive_path, "B-LINK"
                 except Exception:
                     pass
-
         return None, "NONE"
 
     @classmethod
-    def ensure_maintenance_mode(cls) -> str | None:
-        """
-        Ensures the probe is in MAINTENANCE mode. If in B-LINK mode, sends Magic File
-        to trigger soft-reset into MAINTENANCE.
-        """
+    def _wait_for_mode(cls, target_mode: str, timeout: float) -> str | None:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            drive, mode = cls.get_drive_info()
+            if mode == target_mode:
+                time.sleep(1.0)          # فرصت پایدار شدن mount
+                return drive
+            time.sleep(0.5)
+        return None
+
+    # ─────────────────── سوییچ نرم‌افزاری به بوت‌لودر ───────────────────
+    @classmethod
+    def ensure_maintenance_mode(cls) -> tuple[str | None, str]:
         drive, mode = cls.get_drive_info()
 
         if mode == "MAINTENANCE":
-            print(
-                f">>> [DEBUG-SERVICE] Probe already in MAINTENANCE mode at [{drive}]")
-            return drive
+            return drive, "MAINTENANCE"
 
         if mode == "B-LINK" and drive:
             print(
-                f">>> [DEBUG-SERVICE] Probe in B-LINK mode at [{drive}]. Sending Magic File trigger...")
-            magic_files = ["PROBE.ACT", "MODE_TYPE.TXT"]
-            for mf in magic_files:
-                try:
-                    with open(os.path.join(drive, mf), "wb") as f:
-                        f.write(b"1")
-                except Exception as e:
-                    print(f">>> [DEBUG-SERVICE] Warning creating {mf}: {e}")
+                ">>> [SERVICE] Sending START_BL.ACT (standard DAPLink trigger)...")
+            try:
+                path = os.path.join(drive, "START_BL.ACT")
+                with open(path, "wb") as f:
+                    f.write(b"")
+                    f.flush()
+                    os.fsync(f.fileno())
+            except Exception as e:
+                # قطع شدن ناگهانی درایو حین ریبوت طبیعی است
+                print(f">>> [SERVICE] (expected) write interrupted: {e}")
 
-            print(
-                ">>> [DEBUG-SERVICE] Waiting 5 seconds for reboot to MAINTENANCE mode...")
-            for _ in range(8):
-                time.sleep(1)
-                m_drive, m_mode = cls.get_drive_info()
-                if m_mode == "MAINTENANCE":
-                    print(
-                        f">>> [DEBUG-SERVICE] Switched to MAINTENANCE mode at [{m_drive}]!")
-                    return m_drive
+            m_drive = cls._wait_for_mode("MAINTENANCE", timeout=15)
+            if m_drive:
+                print(f">>> [SERVICE] MAINTENANCE mode at [{m_drive}]")
+                return m_drive, "MAINTENANCE"
+            return drive, "B-LINK"
 
-            # اگر سوئیچ اتوماتیک انجام نشد، همان درایو موجود استفاده می‌شود
-            print(
-                ">>> [DEBUG-SERVICE] Soft-reset timeout, proceeding with current drive...")
-            return drive
+        return None, "NONE"
 
-        return None
+    # ───────────────────── اعتبارسنجی فایل فریمور ─────────────────────
+    @staticmethod
+    def validate_firmware_file(path: str) -> tuple[bool, str]:
+        size = os.path.getsize(path)
+        with open(path, 'rb') as f:
+            head = f.read(512)
 
+        if head[:1] == b':':
+            return True, "hex"
+        if head.lstrip()[:1] in (b'<', b'{'):
+            return False, "Server returned an HTML/JSON page instead of binary."
+        if head[:2] == b'\x1f\x8b':
+            return False, "Server returned gzip data. Check server config."
+        if size < 1024:
+            return False, f"File too small ({size} bytes) — download is broken."
+
+        sp, pc = struct.unpack('<II', head[:8])
+        if not (RAM_START < sp <= RAM_END):
+            return False, f"Invalid initial SP 0x{sp:08X}. Bootloader will reject this."
+        if not (IF_ROM_START <= (pc & ~1) < IF_ROM_END):
+            return False, (f"Reset vector 0x{pc:08X} points outside interface region "
+                           f"(expected >= 0x{IF_ROM_START:08X}). The server file is a "
+                           f"STANDALONE image — upload the *_if_crc.bin build instead.")
+        return True, "bin"
+
+    # ─────────────────── تایید نتیجه‌ی واقعی فلش ───────────────────
+    @classmethod
+    def verify_flash_result(cls, timeout: float = 30) -> tuple[bool, str]:
+        time.sleep(4)  # فرصت flash + remount
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            drive, mode = cls.get_drive_info()
+            if mode == "B-LINK":
+                return True, "Probe rebooted to interface mode — update verified."
+            if mode == "MAINTENANCE" and drive:
+                fail = os.path.join(drive, "FAIL.TXT")
+                if os.path.exists(fail):
+                    try:
+                        with open(fail, "r", errors="ignore") as f:
+                            return False, f"Bootloader rejected firmware:\n{f.read().strip()}"
+                    except Exception:
+                        pass
+            time.sleep(1.5)
+        return False, "Timeout: probe did not reboot to interface mode."
+
+    # ───────────────────────── فرایند اصلی ─────────────────────────
     @classmethod
     def update_firmware_online(
         cls,
-        remote_config_url: str = "https://www.bluewaverobotics.ir/app_config.json"
+        remote_config_url: str = "https://www.bluewaverobotics.ir/app_config.json",
+        progress_cb=None,
     ) -> tuple[bool, str]:
-        """
-        Fetches online JSON, downloads binary firmware, and copies it to drive with valid filename.
-        """
-        print(">>> [DEBUG-SERVICE] Step 1: Checking Probe Drive Mode...")
-        drive = cls.ensure_maintenance_mode()
 
+        def report(msg):
+            print(f">>> [SERVICE] {msg}")
+            if progress_cb:
+                progress_cb(msg)
+
+        report("Step 1/6: Checking probe mode...")
+        drive, mode = cls.ensure_maintenance_mode()
         if not drive:
-            return False, "B-Link Probe drive not found!\nPlease connect the probe to USB."
+            return False, "B-Link probe not found. Please connect it via USB."
+        if mode != "MAINTENANCE":
+            return False, (
+                "Could not switch probe to MAINTENANCE mode.\n\n"
+                "The firmware on this probe does not handle START_BL.ACT, or the "
+                "bootloader ignores the hold_in_bl flag.\n"
+                "Flash the probe once with ST-Link using the corrected build.")
 
-        print(">>> [DEBUG-SERVICE] Step 2: Fetching Server Config...")
-        proxy_handler = urllib.request.ProxyHandler({})
-        ssl_ctx = ssl.create_default_context()
-        ssl_ctx.check_hostname = False
-        ssl_ctx.verify_mode = ssl.CERT_NONE
-
+        report("Step 2/6: Fetching server config...")
         opener = urllib.request.build_opener(
-            proxy_handler,
-            urllib.request.HTTPSHandler(context=ssl_ctx)
-        )
-
+            urllib.request.ProxyHandler({}),
+            urllib.request.HTTPSHandler(context=cls._ssl_ctx()))
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                   'Accept-Encoding': 'identity'}
         try:
-            req = urllib.request.Request(
-                remote_config_url,
-                headers={
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-            )
-
-            with opener.open(req, timeout=10) as response:
-                full_config = json.loads(response.read().decode('utf-8'))
-
-            blink_section = full_config.get("BLink_firmware", {})
-            url = blink_section.get("firmware_url")
-            version = blink_section.get("lstest_version") or blink_section.get(
-                "latest_version", "v1.0.0")
-
+            req = urllib.request.Request(remote_config_url, headers=headers)
+            with opener.open(req, timeout=10) as r:
+                cfg = json.loads(r.read().decode('utf-8'))
+            sec = cfg.get("BLink_firmware", {})
+            url = sec.get("firmware_url")
+            version = sec.get("latest_version") or sec.get(
+                "lstest_version", "v1.0.0")
             if not url:
-                return False, "Firmware URL missing in server JSON."
-
-            print(
-                f">>> [DEBUG-SERVICE] Step 3: Config Parsed (Version {version}).")
-
+                return False, "firmware_url missing in server JSON."
         except Exception as e:
-            print(f">>> [DEBUG-SERVICE] ERROR fetching JSON: {e}")
-            return False, f"Network Connection Error.\nError: {str(e)}"
+            return False, f"Network error while fetching config:\n{e}"
 
-        # دانلود و کپی با نام فایل استاندارد
-        temp_bin_path = ""
+        report(f"Step 3/6: Downloading firmware {version}...")
+        suffix = ".hex" if url.lower().endswith(".hex") else ".bin"
+        fd, temp_path = tempfile.mkstemp(suffix=suffix)
+        os.close(fd)
         try:
-            print(">>> [DEBUG-SERVICE] Step 4: Downloading binary firmware...")
-            fd, temp_bin_path = tempfile.mkstemp(suffix=".bin")
-            os.close(fd)
-
-            bin_req = urllib.request.Request(
-                url,
-                headers={
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-            )
-            with opener.open(bin_req, timeout=30) as bin_response, open(temp_bin_path, 'wb') as out_file:
-                shutil.copyfileobj(bin_response, out_file)
-
-            # استفاده از نام فایل استاندارد firmware.bin جهت جلوگیری از خطای VFS
-            dest_path = os.path.join(drive, "firmware.bin")
-            print(
-                f">>> [DEBUG-SERVICE] Step 5: Copying '{temp_bin_path}' -> '{dest_path}'...")
-            shutil.copy2(temp_bin_path, dest_path)
-
-            print(">>> [DEBUG-SERVICE] Step 6: Copy completed successfully!")
-
-            return True, f"✔ B-Link Probe updated successfully to version {version}!"
-
+            req = urllib.request.Request(url, headers=headers)
+            with opener.open(req, timeout=60) as r, open(temp_path, 'wb') as out:
+                shutil.copyfileobj(r, out)
         except Exception as e:
-            print(f">>> [DEBUG-SERVICE] ERROR during download/copy: {e}")
-            return False, f"Failed to update firmware.\nError: {str(e)}"
+            cls._cleanup(temp_path)
+            return False, f"Firmware download failed:\n{e}"
 
+        report("Step 4/6: Validating firmware image...")
+        ok, kind = cls.validate_firmware_file(temp_path)
+        if not ok:
+            # فایل را برای بازرسی نگه می‌داریم
+            return False, f"Firmware validation FAILED:\n{kind}\n\nTemp file kept at:\n{temp_path}"
+
+        report("Step 5/6: Copying to MAINTENANCE drive...")
+        try:
+            dest = os.path.join(drive, "firmware" + suffix)
+            with open(temp_path, 'rb') as src, open(dest, 'wb') as dst:
+                shutil.copyfileobj(src, dst)
+                dst.flush()
+                os.fsync(dst.fileno())
+        except Exception as e:
+            # قطع درایو وسط کپی می‌تواند یعنی فلش شروع شده؛ ادامه به verify
+            print(f">>> [SERVICE] copy interrupted (may be normal): {e}")
         finally:
-            if temp_bin_path and os.path.exists(temp_bin_path):
-                try:
-                    os.remove(temp_bin_path)
-                except Exception:
-                    pass
+            cls._cleanup(temp_path)
+
+        report("Step 6/6: Verifying flash result...")
+        ok, msg = cls.verify_flash_result()
+        if ok:
+            return True, f"✔ B-Link probe updated to {version}!\n{msg}"
+        return False, msg
+
+    # ───────────────────────── helpers ─────────────────────────
+    @staticmethod
+    def _ssl_ctx():
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+
+    @staticmethod
+    def _cleanup(path):
+        try:
+            if path and os.path.exists(path):
+                os.remove(path)
+        except Exception:
+            pass

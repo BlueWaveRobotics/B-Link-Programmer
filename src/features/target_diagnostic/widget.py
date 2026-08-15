@@ -513,37 +513,28 @@ class TargetDiagnosticWidget(QWidget):
 
     @Slot()
     def _start_online_update(self) -> None:
-        """Triggers 1-Click Online Update safely."""
         reply = QMessageBox.question(
-            self,
-            "Confirm Online Update",
-            "This will download the latest B-Link firmware from server and install it.\n"
-            "Do you want to proceed?",
+            self, "Confirm Online Update",
+            "This will download the latest B-Link firmware and install it.\n"
+            "Do NOT unplug the probe during the update.\nProceed?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes,
-        )
+            QMessageBox.StandardButton.Yes)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
 
-        if reply == QMessageBox.StandardButton.Yes:
-            self.btn_online_update.setText("⏳ DOWNLOADING & UPDATING...")
-            self.btn_online_update.setEnabled(False)
-            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        self.btn_online_update.setEnabled(False)
+        self._fw_worker = FirmwareUpdateWorker(
+            "https://www.bluewaverobotics.ir/app_config.json", parent=self)
+        self._fw_worker.progress.connect(
+            lambda m: self.btn_online_update.setText(f"⏳ {m[:40]}"))
+        self._fw_worker.finished_update.connect(self._on_update_finished)
+        self._fw_worker.start()
 
-            try:
-                # اجرای فرآیند آپدیت
-                success, message = ProbeFirmwareUpdateService.update_firmware_online(
-                    remote_config_url="https://www.bluewaverobotics.ir/app_config.json"
-                )
-            except Exception as exc:
-                success = False
-                message = f"Unexpected Error: {str(exc)}"
-            finally:
-                # این بخش همیشه اجرا می‌شود تا UI فریز نشود
-                QApplication.restoreOverrideCursor()
-                self.btn_online_update.setText("🌐 ONE-CLICK ONLINE UPDATE")
-                self.btn_online_update.setEnabled(True)
-
-            if success:
-                QMessageBox.information(
-                    self, "Online Update Successful", message)
-            else:
-                QMessageBox.critical(self, "Online Update Failed", message)
+    @Slot(bool, str)
+    def _on_update_finished(self, success: bool, message: str) -> None:
+        self.btn_online_update.setText("🌐 ONE-CLICK ONLINE UPDATE")
+        self.btn_online_update.setEnabled(True)
+        if success:
+            QMessageBox.information(self, "Online Update Successful", message)
+        else:
+            QMessageBox.critical(self, "Online Update Failed", message)
