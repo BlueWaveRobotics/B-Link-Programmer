@@ -43,47 +43,176 @@ class SerialMonitorWidget(QWidget):
         self.is_serial_connected = False
 
         self._init_ui()
+        self._apply_styles()
+        # Populate COM ports on startup
+        self._refresh_serial_ports()
+
+    def _apply_styles(self) -> None:
+        """Apply modern, dark industrial UI styling consistent with the application."""
+        self.setStyleSheet(
+            """
+            QWidget {
+                background-color: #0B1220;
+                color: #E5E7EB;
+                font-family: "Segoe UI", "Arial";
+            }
+            QGroupBox {
+                background-color: #111C2E;
+                border: 1px solid #2A3D59;
+                border-radius: 12px;
+                margin-top: 25px;
+                font-size: 15px;
+                font-weight: 800;
+                color: #38BDF8;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                left: 18px;
+                padding: 5px 11px;
+                background-color: #0B1220;
+                color: #38BDF8;
+            }
+            QLabel {
+                color: #E5EDF7;
+                font-size: 14px;
+                font-weight: 650;
+            }
+            QLineEdit {
+                background-color: #0A1323;
+                color: #F8FAFC;
+                border: 1px solid #40516B;
+                border-radius: 8px;
+                padding: 10px 13px;
+                min-height: 24px;
+                font-family: "Consolas", "Courier New", monospace;
+                font-size: 14px;
+                font-weight: 700;
+                selection-background-color: #155E75;
+            }
+            QLineEdit:hover { border-color: #38BDF8; }
+            QLineEdit:focus { border: 2px solid #0EA5E9; background-color: #0E1B30; }
+            
+            QComboBox {
+                background-color: #0A1323;
+                color: #F8FAFC;
+                border: 1px solid #40516B;
+                border-radius: 8px;
+                padding: 8px 12px;
+                min-height: 26px;
+                font-size: 14px;
+                font-weight: 700;
+            }
+            QComboBox:hover { border-color: #38BDF8; background-color: #0E1B30; }
+            QComboBox::drop-down { border: none; width: 30px; border-left: 1px solid #2A3D59; }
+            QComboBox QAbstractItemView {
+                background: #111C2E;
+                color: #F8FAFC;
+                border: 1px solid #40516B;
+                selection-background-color: #155E75;
+            }
+
+            QCheckBox {
+                color: #E5EDF7;
+                font-size: 14px;
+                font-weight: 700;
+                spacing: 10px;
+                padding: 4px 0px;
+            }
+            QCheckBox:hover { color: #38BDF8; }
+            QCheckBox::indicator {
+                width: 22px;
+                height: 22px;
+                border: 2px solid #64748B;
+                border-radius: 6px;
+                background-color: #0A1323;
+            }
+            QCheckBox::indicator:hover { border-color: #38BDF8; }
+            QCheckBox::indicator:checked {
+                background-color: #059669;
+                border-color: #10B981;
+                image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'></polyline></svg>");
+            }
+
+            QPushButton {
+                background-color: #2A3D59;
+                color: #F8FAFC;
+                border: 1px solid #405675;
+                border-radius: 8px;
+                padding: 10px 18px;
+                min-height: 26px;
+                font-size: 13px;
+                font-weight: 800;
+            }
+            QPushButton:hover { background-color: #344C6B; border-color: #5B7393; }
+            QPushButton:pressed { background-color: #1C2B42; }
+            QPushButton:disabled { background-color: #172236; color: #52627A; border-color: #26354B; }
+            
+            QPushButton#connectBtn {
+                background-color: #0284C7;
+                border: 1px solid #0369A1;
+                font-size: 14px;
+            }
+            QPushButton#connectBtn:hover { background-color: #0EA5E9; }
+
+            QPushButton#sendBtn {
+                background-color: #059669;
+                border: 1px solid #047857;
+                font-size: 14px;
+            }
+            QPushButton#sendBtn:hover { background-color: #10B981; }
+
+            QTextEdit#terminal {
+                background-color: #010409;
+                color: #00FF41; /* رنگ ترمینال کلاسیک (سبز فسفری) */
+                border: 1px solid #30363D;
+                border-radius: 8px;
+                font-family: 'Consolas', 'Courier New', monospace;
+                font-size: 14px;
+                padding: 10px;
+                selection-background-color: #238636;
+                selection-color: #FFFFFF;
+            }
+            """
+        )
 
     def _init_ui(self) -> None:
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setContentsMargins(22, 22, 22, 22)
+        main_layout.setSpacing(16)
 
         # -------------------------------------------------------------
         # Port Configuration Top Panel
         # -------------------------------------------------------------
         serial_config_group = QGroupBox("COM Port Connection")
         serial_config_layout = QHBoxLayout()
+        serial_config_layout.setContentsMargins(16, 20, 16, 16)
+        serial_config_layout.setSpacing(16)
 
         serial_config_layout.addWidget(QLabel("Port:"))
         self.combo_ports = QComboBox()
-        self.combo_ports.setMinimumWidth(220)
+        self.combo_ports.setMinimumWidth(280)
         serial_config_layout.addWidget(self.combo_ports)
 
-        self.btn_refresh_ports = QPushButton("Refresh")
+        self.btn_refresh_ports = QPushButton("↻ REFRESH")
         self.btn_refresh_ports.clicked.connect(self._refresh_serial_ports)
         serial_config_layout.addWidget(self.btn_refresh_ports)
 
         serial_config_layout.addWidget(QLabel("Baud Rate:"))
         self.combo_baud = QComboBox()
         self.combo_baud.addItems(
-            [
-                "9600",
-                "19200",
-                "38400",
-                "57600",
-                "115200",
-                "230400",
-                "460800",
-                "921600",
-            ]
+            ["9600", "19200", "38400", "57600",
+                "115200", "230400", "460800", "921600"]
         )
         self.combo_baud.setCurrentText("115200")
+        self.combo_baud.setMinimumWidth(120)
         serial_config_layout.addWidget(self.combo_baud)
 
-        self.btn_connect_serial = QPushButton("Connect")
-        self.btn_connect_serial.setStyleSheet(
-            "background-color: #2980B9; color: white; font-weight: bold;"
-        )
+        serial_config_layout.addStretch()
+
+        self.btn_connect_serial = QPushButton("CONNECT")
+        self.btn_connect_serial.setObjectName("connectBtn")
+        self.btn_connect_serial.setMinimumWidth(140)
         self.btn_connect_serial.clicked.connect(self._toggle_serial_connection)
         serial_config_layout.addWidget(self.btn_connect_serial)
 
@@ -94,8 +223,9 @@ class SerialMonitorWidget(QWidget):
         # Display & Scroll Options
         # -------------------------------------------------------------
         opt_layout = QHBoxLayout()
+        opt_layout.setContentsMargins(8, 0, 8, 0)
         self.chk_hex_view = QCheckBox("HEX Display Mode")
-        self.chk_autoscroll = QCheckBox("Auto-Scroll")
+        self.chk_autoscroll = QCheckBox("Auto-Scroll Terminal")
         self.chk_autoscroll.setChecked(True)
         opt_layout.addWidget(self.chk_hex_view)
         opt_layout.addWidget(self.chk_autoscroll)
@@ -107,37 +237,37 @@ class SerialMonitorWidget(QWidget):
         # -------------------------------------------------------------
         terminal_group = QGroupBox("RX/TX Terminal Console")
         terminal_layout = QVBoxLayout()
+        terminal_layout.setContentsMargins(16, 20, 16, 16)
+        terminal_layout.setSpacing(14)
 
         self.txt_serial_console = QTextEdit()
+        self.txt_serial_console.setObjectName("terminal")
         self.txt_serial_console.setReadOnly(True)
-        self.txt_serial_console.setStyleSheet(
-            "background-color: #0D1117; color: #E6EDF3; font-family: Consolas, monospace; font-size: 12px;"
-        )
-        terminal_layout.addWidget(self.txt_serial_console)
+        terminal_layout.addWidget(self.txt_serial_console, stretch=1)
 
         # Data Transmission Field
         send_layout = QHBoxLayout()
+        send_layout.setSpacing(12)
         self.txt_send_data = QLineEdit()
         self.txt_send_data.setPlaceholderText(
-            "Type string or HEX payload to transmit to target MCU..."
-        )
+            "Type string or HEX payload to transmit to target MCU...")
         self.txt_send_data.returnPressed.connect(self._send_serial_message)
-        send_layout.addWidget(self.txt_send_data)
+        send_layout.addWidget(self.txt_send_data, stretch=1)
 
-        self.btn_send = QPushButton("Send")
+        self.btn_send = QPushButton("SEND DATA")
+        self.btn_send.setObjectName("sendBtn")
+        self.btn_send.setMinimumWidth(120)
         self.btn_send.clicked.connect(self._send_serial_message)
         send_layout.addWidget(self.btn_send)
 
-        self.btn_clear_serial = QPushButton("Clear")
+        self.btn_clear_serial = QPushButton("CLEAR TERMINAL")
+        self.btn_clear_serial.setMinimumWidth(140)
         self.btn_clear_serial.clicked.connect(self.txt_serial_console.clear)
         send_layout.addWidget(self.btn_clear_serial)
 
         terminal_layout.addLayout(send_layout)
         terminal_group.setLayout(terminal_layout)
-        main_layout.addWidget(terminal_group)
-
-        # Populate COM ports on startup
-        self._refresh_serial_ports()
+        main_layout.addWidget(terminal_group, stretch=1)
 
     # -----------------------------------------------------------------
     # Port Enumeration & Connection Logic
@@ -159,9 +289,7 @@ class SerialMonitorWidget(QWidget):
             port_name = self.combo_ports.currentData()
             if not port_name:
                 QMessageBox.warning(
-                    self,
-                    "Port Warning",
-                    "Please select a valid COM port from the list first.",
+                    self, "Port Warning", "Please select a valid COM port from the list first."
                 )
                 return
 
@@ -176,14 +304,11 @@ class SerialMonitorWidget(QWidget):
             self.serial_worker.moveToThread(self.serial_thread)
 
             self.serial_thread.started.connect(
-                self.serial_worker.start_listening
-            )
+                self.serial_worker.start_listening)
             self.serial_worker.data_received.connect(
-                self._on_serial_data_received
-            )
+                self._on_serial_data_received)
             self.serial_worker.status_signal.connect(
-                self._on_serial_status_changed
-            )
+                self._on_serial_status_changed)
             self.serial_worker.error_signal.connect(self._on_serial_error)
 
             # Bind UI TX signal to thread worker TX slot
@@ -225,17 +350,17 @@ class SerialMonitorWidget(QWidget):
         self._append_serial_system_msg(f"[STATUS] {message}")
 
         if connected:
-            self.btn_connect_serial.setText("Disconnect")
+            self.btn_connect_serial.setText("DISCONNECT")
             self.btn_connect_serial.setStyleSheet(
-                "background-color: #C0392B; color: white; font-weight: bold;"
+                "background-color: #DC2626; border: 1px solid #EF4444; color: white;"
             )
             self.combo_ports.setEnabled(False)
             self.combo_baud.setEnabled(False)
             self.btn_refresh_ports.setEnabled(False)
         else:
-            self.btn_connect_serial.setText("Connect")
+            self.btn_connect_serial.setText("CONNECT")
             self.btn_connect_serial.setStyleSheet(
-                "background-color: #2980B9; color: white; font-weight: bold;"
+                "background-color: #0284C7; border: 1px solid #0369A1; color: white;"
             )
             self.combo_ports.setEnabled(True)
             self.combo_baud.setEnabled(True)
@@ -254,9 +379,7 @@ class SerialMonitorWidget(QWidget):
     def _send_serial_message(self) -> None:
         if not self.is_serial_connected:
             QMessageBox.warning(
-                self,
-                "Connection Warning",
-                "Please connect to a valid COM port before transmitting.",
+                self, "Connection Warning", "Please connect to a valid COM port before transmitting."
             )
             return
 
