@@ -25,6 +25,11 @@ from src.common.logger import get_logger
 from src.features.target_diagnostic.worker import TargetDiagnosticWorker
 from src.features.target_diagnostic.firmware_update_service import ProbeFirmwareUpdateService
 
+from src.features.target_diagnostic.firmware_update_service import (
+    ProbeFirmwareUpdateService,
+    FirmwareUpdateWorker,
+)
+
 logger = get_logger("TargetDiagnosticWidget")
 
 
@@ -513,27 +518,44 @@ class TargetDiagnosticWidget(QWidget):
 
     @Slot()
     def _start_online_update(self) -> None:
+        """Triggers 1-Click Online Update (runs in background thread)."""
         reply = QMessageBox.question(
-            self, "Confirm Online Update",
+            self,
+            "Confirm Online Update",
             "This will download the latest B-Link firmware and install it.\n"
             "Do NOT unplug the probe during the update.\nProceed?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes)
+            QMessageBox.StandardButton.Yes,
+        )
         if reply != QMessageBox.StandardButton.Yes:
             return
 
+        # جلوگیری از اجرای هم‌زمان دوباره
+        if getattr(self, "_fw_worker", None) and self._fw_worker.isRunning():
+            return
+
         self.btn_online_update.setEnabled(False)
+        self.btn_online_update.setText("⏳ Starting update...")
+
         self._fw_worker = FirmwareUpdateWorker(
-            "https://www.bluewaverobotics.ir/app_config.json", parent=self)
-        self._fw_worker.progress.connect(
-            lambda m: self.btn_online_update.setText(f"⏳ {m[:40]}"))
+            "https://www.bluewaverobotics.ir/app_config.json",
+            parent=self,
+        )
+        self._fw_worker.progress.connect(self._on_update_progress)
         self._fw_worker.finished_update.connect(self._on_update_finished)
         self._fw_worker.start()
 
+    @Slot(str)
+    def _on_update_progress(self, message: str) -> None:
+        """Shows current step on the button while updating."""
+        self.btn_online_update.setText(f"⏳ {message[:45]}")
+
     @Slot(bool, str)
     def _on_update_finished(self, success: bool, message: str) -> None:
+        """Called automatically when the background update finishes."""
         self.btn_online_update.setText("🌐 ONE-CLICK ONLINE UPDATE")
         self.btn_online_update.setEnabled(True)
+
         if success:
             QMessageBox.information(self, "Online Update Successful", message)
         else:

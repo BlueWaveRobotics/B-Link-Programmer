@@ -240,3 +240,29 @@ class ProbeFirmwareUpdateService:
                 os.remove(path)
         except Exception:
             pass
+
+
+# ─────────────────────────────────────────────────────────────
+#  Background worker — runs the whole update flow off the UI thread
+# ─────────────────────────────────────────────────────────────
+
+
+class FirmwareUpdateWorker(QThread):
+    """Runs ProbeFirmwareUpdateService.update_firmware_online in background."""
+
+    progress = Signal(str)              # پیام مرحله‌ی جاری برای نمایش روی دکمه
+    finished_update = Signal(bool, str)  # (موفق/ناموفق ، پیام نهایی)
+
+    def __init__(self, config_url: str, parent=None):
+        super().__init__(parent)
+        self._url = config_url
+
+    def run(self):
+        try:
+            ok, msg = ProbeFirmwareUpdateService.update_firmware_online(
+                remote_config_url=self._url,
+                progress_cb=self.progress.emit,
+            )
+        except Exception as exc:
+            ok, msg = False, f"Unexpected error: {exc}"
+        self.finished_update.emit(ok, msg)
