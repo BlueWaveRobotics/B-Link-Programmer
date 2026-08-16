@@ -555,6 +555,9 @@ class ProductionProgrammerWidget(QWidget):
         # نگهداری وضعیت نوع اتصال که از سمت منوی اصلی تغییر می‌کند
         self.current_interface = "DAPLink (SWD)"
 
+        # ⬅️ اضافه شدن پرچم برای تشخیص نوع عملیات فعلی (Erase یا Flash)
+        self._current_operation = "NONE"
+
         self.traceability_db = TraceabilityDatabase()
         self.qa_service = QAService()
         self.current_uid: str = "UNKNOWN-UID"
@@ -766,6 +769,7 @@ class ProductionProgrammerWidget(QWidget):
             QCheckBox::indicator:checked {
                 background-color: #059669;
                 border-color: #10B981;
+                image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'></polyline></svg>");
             }
             QCheckBox:disabled { color: #64748B; }
 
@@ -1094,12 +1098,17 @@ class ProductionProgrammerWidget(QWidget):
                                  "Invalid hexadecimal memory address syntax.")
             return
 
+        # ⬅️ ست کردن پرچم برای مشخص شدن نوع عملیات
+        self._current_operation = "FLASH"
+
         enable_prov = self.chk_serial_inject.isChecked()
-        serial_str = self.txt_serial.text().strip()
-        serial_payload = (
-            ProvisioningService().build_serial_payload(max_length=32)
-            if enable_prov else []
-        )
+        serial_payload = []
+        if enable_prov:
+            serial_str = self.txt_serial.text().strip()
+            # تولید نمونه بایت‌های سریال برای عملیات
+            prov_service = ProvisioningService()
+            prov_service.prefix = serial_str
+            serial_payload = prov_service.build_serial_payload(max_length=32)
 
         self._set_ui_busy(True)
         self.current_uid = "UNKNOWN-UID"
@@ -1133,6 +1142,9 @@ class ProductionProgrammerWidget(QWidget):
             clock_freq = self._parse_clock_freq()
         except ValueError:
             return
+
+        # ⬅️ ست کردن پرچم برای مشخص شدن نوع عملیات (تا UID چک نشود)
+        self._current_operation = "ERASE"
 
         self._set_ui_busy(True)
         self.qa_banner.set_busy_state("Executing Full Chip Erase...")
@@ -1169,22 +1181,27 @@ class ProductionProgrammerWidget(QWidget):
         serial_num = self.txt_serial.text().strip(
         ) if self.chk_serial_inject.isChecked() else None
 
-        if "USB" not in self.current_interface:
+        # ⬅️ تغییر اساسی: اعتبارسنجی UID فقط برای عملیات "فلش کردن" انجام می‌شود نه "پاک کردن"
+        if self._current_operation == "FLASH" and "USB" not in self.current_interface:
             uid_valid = self.qa_service.is_valid_uid(self.current_uid)
             final_success = success and uid_valid
             if not uid_valid and success:
                 message = "Programming succeeded but target UID validation FAILED."
         else:
             final_success = success
-            self.current_uid = "DFU-DEVICE"
+            if self._current_operation == "ERASE":
+                self.current_uid = "ERASE-ONLY"
+            elif "USB" in self.current_interface:
+                self.current_uid = "DFU-DEVICE"
 
         self.qa_service.record_result(final_success)
         self._update_statistics_display()
 
         if final_success:
+            op_name = "FLASHED" if self._current_operation == "FLASH" else "ERASED"
             self.qa_banner.set_pass_state(
                 self.last_cycle_time,
-                f"DEVICE VERIFIED PASS ({self.current_interface})",
+                f"DEVICE {op_name} SUCCESSFULLY ({self.current_interface})",
             )
             status_text = "PASS"
         else:
@@ -1198,6 +1215,9 @@ class ProductionProgrammerWidget(QWidget):
             status=status_text,
             message=message,
         )
+
+        # بازنشانی وضعیت عملیات پس از اتمام
+        self._current_operation = "NONE"
 
     def _export_logs_csv(self) -> None:
         file_path, _ = QFileDialog.getSaveFileName(
