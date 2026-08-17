@@ -823,7 +823,7 @@ class MainWindow(QMainWindow):
             "assets/icons/microchip-solid-full.svg", "Programmer"
         )
         self.sidebar.add_nav_item(
-            "assets/icons/sliders-solid-full.svg", "Option Bytes"
+            "assets/icons/lock-solid-full.svg", "Option Bytes"
         )
         self.sidebar.add_nav_item(
             "assets/icons/display-solid-full.svg", "Serial Monitor"
