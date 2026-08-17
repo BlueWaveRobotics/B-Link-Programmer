@@ -550,14 +550,15 @@ class OptionBytesWidget(QWidget):
         btn_layout.setSpacing(16)
 
         self.btn_reload = QPushButton(" Reload Option Bytes")
-        self.btn_reload.setIcon(QIcon("assets/icons/arrows-rotate-solid.svg"))
+        self.btn_reload.setIcon(
+            QIcon("assets/icons/arrows-rotate-solid-full.svg"))
         self.btn_reload.setIconSize(QSize(16, 16))
         self.btn_reload.setMinimumHeight(45)
         self.btn_reload.clicked.connect(self._on_reload_clicked)
 
         self.btn_apply = QPushButton(" Apply Changes to Target")
         self.btn_apply.setObjectName("applyBtn")
-        self.btn_apply.setIcon(QIcon("assets/icons/bolt-solid.svg"))
+        self.btn_apply.setIcon(QIcon("assets/icons/bolt-solid-full.svg"))
         self.btn_apply.setIconSize(QSize(16, 16))
         self.btn_apply.setMinimumHeight(45)
         self.btn_apply.clicked.connect(self._on_apply_clicked)
@@ -586,7 +587,8 @@ class OptionBytesWidget(QWidget):
         self.btn_reload.setEnabled(True)
         self.btn_apply.setEnabled(True)
         self.btn_reload.setText(" Reload Option Bytes")
-        self.btn_reload.setIcon(QIcon("assets/icons/arrows-rotate-solid.svg"))
+        self.btn_reload.setIcon(
+            QIcon("assets/icons/arrows-rotate-solid-full.svg"))
 
         if not success:
             QMessageBox.critical(self, "Option Bytes Error", error_msg)
@@ -671,7 +673,7 @@ class OptionBytesWidget(QWidget):
         self.btn_apply.setEnabled(True)
         self.btn_reload.setEnabled(True)
         self.btn_apply.setText(" Apply Changes to Target")
-        self.btn_apply.setIcon(QIcon("assets/icons/bolt-solid.svg"))
+        self.btn_apply.setIcon(QIcon("assets/icons/bolt-solid-full.svg"))
 
         if success:
             QMessageBox.information(self, "Success", message)
