@@ -7,14 +7,16 @@ and a real-time hardware status bar.
 """
 from PySide6.QtGui import QFont, QPalette, QColor, QIcon
 from src.common import get_logger, GlobalStatusBar
-from src.features.script_hooks.widget import ScriptHooksWidget
-from src.features.firmware_merger.widget import FirmwareMergerWidget
 from src.features.batch_programmer.widget import BatchProgrammerWidget
 from src.features.target_diagnostic.widget import TargetDiagnosticWidget
 from src.features.serial_monitor.widget import SerialMonitorWidget
 from src.features.option_bytes.widget import OptionBytesWidget
 from src.features.production_programmer.widget import ProductionProgrammerWidget
 from src.features.memory_viewer.widget import MemoryViewerWidget
+from PySide6.QtCore import QTimer, QUrl
+from PySide6.QtWidgets import QMessageBox
+from PySide6.QtGui import QDesktopServices
+from src.common.app_updater import AppUpdateWorker
 import sys
 from typing import Optional
 from PySide6.QtCore import Qt, QSize
@@ -300,8 +302,8 @@ class MainWindow(QMainWindow):
         self.diagnostic_widget = TargetDiagnosticWidget()
         self.diagnostic_widget.setMinimumWidth(380)
         self.batch_widget = BatchProgrammerWidget()
-        self.merger_widget = FirmwareMergerWidget()
-        self.script_hooks_widget = ScriptHooksWidget(self)
+        # self.merger_widget = FirmwareMergerWidget()
+        # self.script_hooks_widget = ScriptHooksWidget(self)
 
         # Build application layout
         self._init_central_workspace()
@@ -318,7 +320,37 @@ class MainWindow(QMainWindow):
             self.diagnostic_widget.on_global_probe_status_changed
         )
 
-        logger.info("Sport 4-pane workspace initialized successfully.")
+        logger.info("4-pane workspace initialized successfully.")
+        QTimer.singleShot(2000, self._run_silent_update_check)
+
+    def _run_silent_update_check(self):
+        self.updater_thread = AppUpdateWorker(self)
+        self.updater_thread.check_finished.connect(self._on_auto_update_result)
+        self.updater_thread.start()
+
+    def _on_auto_update_result(self, success: bool, is_newer: bool, version: str, notes: str, url: str, error: str):
+        """دریافت نتیجه از ورکر پس‌زمینه و نمایش پنجره انگلیسی"""
+        # اگر اینترنت قطع بود یا آپدیتی نبود، بدون هیچ پیامی خارج می‌شود (Silent Exit)
+
+        if success and is_newer:
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Software Update Available")
+            msg_box.setText(
+                f"A new version of B-Link software (v{version}) is available!")
+            msg_box.setInformativeText(
+                f"Release Notes:\n{notes}\n\nWould you like to download the update now?")
+
+            # دکمه‌های تایید و انصراف به انگلیسی
+            btn_download = msg_box.addButton(
+                "📥 Download Update", QMessageBox.ButtonRole.AcceptRole)
+            btn_cancel = msg_box.addButton(
+                "Remind Me Later", QMessageBox.ButtonRole.RejectRole)
+
+            msg_box.exec()
+
+            if msg_box.clickedButton() == btn_download:
+                # باز کردن لینک دانلود در مرورگر
+                QDesktopServices.openUrl(QUrl(url))
 
     def on_global_interface_changed(self, new_interface: str) -> None:
         self.current_interface = new_interface
@@ -357,12 +389,12 @@ class MainWindow(QMainWindow):
         self.sidebar.add_nav_item(
             "assets/icons/network-wired-solid-full.svg", "Batch Flashing"
         )
-        self.sidebar.add_nav_item(
-            "assets/icons/code-merge-solid-full.svg", "Firmware Merger"
-        )
-        self.sidebar.add_nav_item(
-            "assets/icons/terminal-solid-full.svg", "Automation Hooks"
-        )
+        # self.sidebar.add_nav_item(
+        #     "assets/icons/code-merge-solid-full.svg", "Firmware Merger"
+        # )
+        # self.sidebar.add_nav_item(
+        #     "assets/icons/terminal-solid-full.svg", "Automation Hooks"
+        # )
 
         self.workspace_stack = QStackedWidget()
         self.workspace_stack.addWidget(self.memory_widget)        # Index 0
@@ -370,8 +402,8 @@ class MainWindow(QMainWindow):
         self.workspace_stack.addWidget(self.ob_widget)            # Index 2
         self.workspace_stack.addWidget(self.serial_widget)        # Index 3
         self.workspace_stack.addWidget(self.batch_widget)         # Index 4
-        self.workspace_stack.addWidget(self.merger_widget)        # Index 5
-        self.workspace_stack.addWidget(self.script_hooks_widget)  # Index 6
+        # self.workspace_stack.addWidget(self.merger_widget)        # Index 5
+        # self.workspace_stack.addWidget(self.script_hooks_widget)  # Index 6
 
         self.sidebar.currentRowChanged.connect(
             self.workspace_stack.setCurrentIndex
