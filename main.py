@@ -5,6 +5,16 @@ modeled after STM32CubeProgrammer, incorporating a vertical navigation sidebar,
 persistent right-hand diagnostic panel, collapsible bottom log console,
 and a real-time hardware status bar.
 """
+
+from src.common.resources import ICON_MEMORY, ICON_PROGRAMMER, ICON_LOCK, ICON_SERIAL, ICON_BATCH
+import sys
+import os
+
+if getattr(sys, 'frozen', False):
+    os.environ["PATH"] += os.pathsep + sys._MEIPASS
+
+from typing import Optional
+from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QFont, QPalette, QColor, QIcon
 from src.common import get_logger, GlobalStatusBar
 from src.features.batch_programmer.widget import BatchProgrammerWidget
@@ -17,7 +27,6 @@ from PySide6.QtCore import QTimer, QUrl
 from PySide6.QtWidgets import QMessageBox
 from PySide6.QtGui import QDesktopServices
 from src.common.app_updater import AppUpdateWorker
-import sys
 from typing import Optional
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtWidgets import (
@@ -33,6 +42,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
 )
+import textwrap
 import textwrap
 import libusb_package
 libusb_package.find()
@@ -175,7 +185,6 @@ class SidebarNavWidget(QWidget):
             QPushButton:hover { background-color: #121D38; }
         """
 
-        # 1. دکمه همبرگری (منو)
         self.top_logo_btn = QPushButton("≡")
         self.top_logo_btn.setFixedHeight(60)
         self.top_logo_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -184,7 +193,6 @@ class SidebarNavWidget(QWidget):
         self.top_logo_btn.clicked.connect(self.toggle_sidebar)
         layout.addWidget(self.top_logo_btn)
 
-        # 2. لیست آیتم‌ها
         self.list_widget = QListWidget()
         self.list_widget.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -202,12 +210,11 @@ class SidebarNavWidget(QWidget):
                 padding-top: 15px;
             }
             QListWidget::item {
-                /* پدینگ مناسب برای وسط قرار گرفتن آیکون در حالت بسته */
                 padding: 10px 10px; 
                 margin: 6px 10px;
                 border-radius: 8px;
                 border-left: 4px solid transparent; 
-                color: #94A3B8; /* رنگ متن */
+                color: #94A3B8; 
                 font-weight: bold;
                 font-size: 13px;
             }
@@ -232,7 +239,6 @@ class SidebarNavWidget(QWidget):
         self.list_widget.setCurrentRow(row)
 
     def toggle_sidebar(self):
-        """تغییر حالت سایدبار بین باز و بسته"""
         self.is_expanded = not self.is_expanded
 
         if self.is_expanded:
@@ -242,7 +248,6 @@ class SidebarNavWidget(QWidget):
 
             for i in range(self.list_widget.count()):
                 item = self.list_widget.item(i)
-                # استخراج اطلاعات ذخیره شده در آیتم
                 icon_path, full_text, tooltip = item.data(
                     Qt.ItemDataRole.UserRole)
                 item.setText(f"   {full_text}")
@@ -255,13 +260,12 @@ class SidebarNavWidget(QWidget):
 
             for i in range(self.list_widget.count()):
                 item = self.list_widget.item(i)
-                item.setText("")  # پاک کردن متن برای حالت آیکون‌تنها
+                item.setText("")
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
     def add_nav_item(self, icon_path: str, full_text: str, tooltip: str = "") -> None:
         item = QListWidgetItem(QIcon(icon_path), "")
 
-        # ذخیره کردن نام تب برای استفاده در زمان باز شدن منو
         item.setData(Qt.ItemDataRole.UserRole, (icon_path, full_text, tooltip))
         item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -302,8 +306,6 @@ class MainWindow(QMainWindow):
         self.diagnostic_widget = TargetDiagnosticWidget()
         self.diagnostic_widget.setMinimumWidth(380)
         self.batch_widget = BatchProgrammerWidget()
-        # self.merger_widget = FirmwareMergerWidget()
-        # self.script_hooks_widget = ScriptHooksWidget(self)
 
         # Build application layout
         self._init_central_workspace()
@@ -329,8 +331,6 @@ class MainWindow(QMainWindow):
         self.updater_thread.start()
 
     def _on_auto_update_result(self, success: bool, is_newer: bool, version: str, notes: str, url: str, error: str):
-        """دریافت نتیجه از ورکر پس‌زمینه و نمایش پنجره انگلیسی"""
-        # اگر اینترنت قطع بود یا آپدیتی نبود، بدون هیچ پیامی خارج می‌شود (Silent Exit)
 
         if success and is_newer:
             msg_box = QMessageBox(self)
@@ -340,7 +340,6 @@ class MainWindow(QMainWindow):
             msg_box.setInformativeText(
                 f"Release Notes:\n{notes}\n\nWould you like to download the update now?")
 
-            # دکمه‌های تایید و انصراف به انگلیسی
             btn_download = msg_box.addButton(
                 "📥 Download Update", QMessageBox.ButtonRole.AcceptRole)
             btn_cancel = msg_box.addButton(
@@ -374,27 +373,11 @@ class MainWindow(QMainWindow):
 
         self.sidebar = SidebarNavWidget()
 
-        self.sidebar.add_nav_item(
-            "assets/icons/floppy-disk-regular-full.svg", "Device Memory"
-        )
-        self.sidebar.add_nav_item(
-            "assets/icons/microchip-solid-full.svg", "Programmer"
-        )
-        self.sidebar.add_nav_item(
-            "assets/icons/lock-solid-full.svg", "Option Bytes"
-        )
-        self.sidebar.add_nav_item(
-            "assets/icons/display-solid-full.svg", "Serial Monitor"
-        )
-        self.sidebar.add_nav_item(
-            "assets/icons/network-wired-solid-full.svg", "Batch Flashing"
-        )
-        # self.sidebar.add_nav_item(
-        #     "assets/icons/code-merge-solid-full.svg", "Firmware Merger"
-        # )
-        # self.sidebar.add_nav_item(
-        #     "assets/icons/terminal-solid-full.svg", "Automation Hooks"
-        # )
+        self.sidebar.add_nav_item(ICON_MEMORY, "Device Memory")
+        self.sidebar.add_nav_item(ICON_PROGRAMMER, "Programmer")
+        self.sidebar.add_nav_item(ICON_LOCK, "Option Bytes")
+        self.sidebar.add_nav_item(ICON_SERIAL, "Serial Monitor")
+        self.sidebar.add_nav_item(ICON_BATCH, "Batch Flashing")
 
         self.workspace_stack = QStackedWidget()
         self.workspace_stack.addWidget(self.memory_widget)        # Index 0
@@ -402,8 +385,6 @@ class MainWindow(QMainWindow):
         self.workspace_stack.addWidget(self.ob_widget)            # Index 2
         self.workspace_stack.addWidget(self.serial_widget)        # Index 3
         self.workspace_stack.addWidget(self.batch_widget)         # Index 4
-        # self.workspace_stack.addWidget(self.merger_widget)        # Index 5
-        # self.workspace_stack.addWidget(self.script_hooks_widget)  # Index 6
 
         self.sidebar.currentRowChanged.connect(
             self.workspace_stack.setCurrentIndex
@@ -481,8 +462,8 @@ class MainWindow(QMainWindow):
                 getattr(self, "serial_widget", None),
                 getattr(self, "status_bar", None),
                 getattr(self, "batch_widget", None),
-                getattr(self, "merger_widget", None),
-                getattr(self, "script_hooks_widget", None),
+                # getattr(self, "merger_widget", None),
+                # getattr(self, "script_hooks_widget", None),
             ]
 
             for module in active_modules:
@@ -511,7 +492,6 @@ def main() -> None:
 
     app.setStyle("Fusion")
 
-    # پالت رنگی آپدیت شده برای مچ شدن با تم عکس ارسالی
     dark_palette = QPalette()
     dark_palette.setColor(QPalette.ColorRole.Window, QColor("#070B19"))
     dark_palette.setColor(QPalette.ColorRole.WindowText, QColor("#F8FAFC"))

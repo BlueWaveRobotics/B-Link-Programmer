@@ -4,6 +4,7 @@ Provides visual QA PASS/FAIL banner, live shift production statistics,
 96-bit UID reading, serial number provisioning, and SQLite traceability.
 Now fully supports dynamic SWD / USB DFU interface switching.
 """
+from src.common.resources import ICON_ARROWS_ROTATE, ICON_FOLDER_OPEN
 
 import os
 from PySide6.QtCore import Qt, QThread, Slot, QPoint, QSize
@@ -333,7 +334,7 @@ class ProductionProgrammerWidget(QWidget):
         # ⬅️ اضافه کردن آیکون به دکمه Reset Stats
         self.btn_reset_stats = QPushButton(" RESET COUNTERS", stats_box)
         self.btn_reset_stats.setIcon(
-            QIcon("assets/icons/arrows-rotate-solid-full.svg"))
+            QIcon(ICON_ARROWS_ROTATE))
         self.btn_reset_stats.setIconSize(QSize(14, 14))
         self.btn_reset_stats.setFixedHeight(36)
         self.btn_reset_stats.clicked.connect(self._on_reset_statistics)
@@ -358,7 +359,7 @@ class ProductionProgrammerWidget(QWidget):
         # ⬅️ اضافه شدن آیکون SVG وکتور سفید به دکمه Browse
         self.btn_browse = QPushButton(" BROWSE...", file_box)
         self.btn_browse.setIcon(
-            QIcon("assets/icons/folder-open-solid-full.svg"))
+            QIcon(ICON_FOLDER_OPEN))
         self.btn_browse.setIconSize(QSize(16, 16))
         self.btn_browse.setFixedWidth(115)
         self.btn_browse.clicked.connect(self._browse_firmware)
@@ -462,19 +463,17 @@ class ProductionProgrammerWidget(QWidget):
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(10)
 
-        # ⬅️ اضافه شدن آیکون SVG وکتور سفید به دکمه Start
         self.btn_start = QPushButton(" START PROGRAMMING", self)
         self.btn_start.setObjectName("startBtn")
         self.btn_start.setIcon(
-            QIcon("assets/icons/.svg"))
+            QIcon())
         self.btn_start.setIconSize(QSize(16, 16))
         self.btn_start.setFixedHeight(40)
         self.btn_start.clicked.connect(self._start_production_flash)
 
-        # ⬅️ اضافه شدن آیکون SVG وکتور سفید به دکمه Erase
         self.btn_erase = QPushButton(" FULL CHIP ERASE", self)
         self.btn_erase.setObjectName("eraseBtn")
-        self.btn_erase.setIcon(QIcon("assets/icons/.svg"))
+        self.btn_erase.setIcon(QIcon())
         self.btn_erase.setIconSize(QSize(16, 16))
         self.btn_erase.setFixedHeight(40)
         self.btn_erase.clicked.connect(self._start_chip_erase)

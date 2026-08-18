@@ -5,6 +5,7 @@ firmware selection, and synchronized multi-threaded batch execution and chip era
 """
 
 import os
+from src.common.resources import QSS_CHEVRON_DOWN, ICON_HOURGLASS, ICON_ARROWS_ROTATE, ICON_FOLDER_OPEN
 from typing import Dict, List, Optional
 from PySide6.QtCore import Qt, Slot
 from PySide6.QtGui import QIcon, QColor
@@ -38,7 +39,6 @@ ADDRESS_PRESETS = [
     ("0x08008000 - Application Offset (32 KB Bootloader)", "0x08008000"),
     ("0x08010000 - Application Offset (64 KB Bootloader)", "0x08010000"),
 ]
-
 BLUEWAVE_STYLE = """
 /* تنظیمات پایه ویجت */
 QWidget {
@@ -205,6 +205,7 @@ QTextEdit#terminalConsole {
     padding: 6px;
 }
 """
+final_stylesheet = BLUEWAVE_STYLE.replace("CHEVRON_DOWN", QSS_CHEVRON_DOWN)
 
 
 class BatchProgrammerWidget(QWidget):
@@ -217,7 +218,7 @@ class BatchProgrammerWidget(QWidget):
         self.coordinator = BatchProgrammerCoordinator(self)
         self.slot_cards: Dict[str, ProbeSlotCard] = {}
 
-        self.setStyleSheet(BLUEWAVE_STYLE)
+        self.setStyleSheet(final_stylesheet)
 
         self._setup_ui()
         self._connect_coordinator_signals()
@@ -244,7 +245,7 @@ class BatchProgrammerWidget(QWidget):
 
         self.btn_browse = QPushButton(" Browse...")
         self.btn_browse.setIcon(
-            QIcon("assets/icons/folder-open-solid-full.svg"))
+            QIcon(ICON_FOLDER_OPEN))
         self.btn_browse.clicked.connect(self._select_file)
 
         file_layout.addWidget(QLabel("Firmware:"))
@@ -296,7 +297,7 @@ class BatchProgrammerWidget(QWidget):
 
         self.btn_scan = QPushButton(" Scan / Refresh Probes")
         self.btn_scan.setIcon(
-            QIcon("assets/icons/arrows-rotate-solid-full.svg"))
+            QIcon(ICON_ARROWS_ROTATE))
         self.btn_scan.clicked.connect(self.scan_connected_probes)
 
         toolbar_layout.addWidget(self.lbl_probe_count)
@@ -329,14 +330,14 @@ class BatchProgrammerWidget(QWidget):
         self.btn_start_batch = QPushButton(" START BATCH PRODUCTION FLASH")
         self.btn_start_batch.setObjectName("btnStartBatch")
         self.btn_start_batch.setIcon(
-            QIcon("assets/icons/.svg"))
+            QIcon())
         self.btn_start_batch.setMinimumHeight(40)
         self.btn_start_batch.clicked.connect(self._start_batch_flashing)
 
         self.btn_chip_erase = QPushButton(" FULL CHIP ERASE (ALL SLOTS)")
         self.btn_chip_erase.setObjectName("btnChipErase")
         self.btn_chip_erase.setIcon(
-            QIcon("assets/icons/.svg"))
+            QIcon())
         self.btn_chip_erase.setMinimumHeight(40)
         self.btn_chip_erase.clicked.connect(self._start_batch_chip_erase)
 
@@ -474,7 +475,7 @@ class BatchProgrammerWidget(QWidget):
         self._set_action_buttons_enabled(False)
 
         self.btn_start_batch.setIcon(
-            QIcon("assets/icons/hourglass-half-solid-full.svg"))
+            QIcon(ICON_HOURGLASS))
         self.btn_start_batch.setText(" FLASHING IN PROGRESS...")
 
         self._append_log(
@@ -526,7 +527,7 @@ class BatchProgrammerWidget(QWidget):
         self._set_action_buttons_enabled(False)
 
         self.btn_chip_erase.setIcon(
-            QIcon("assets/icons/hourglass-half-solid-full.svg"))
+            QIcon(ICON_HOURGLASS))
         self.btn_chip_erase.setText(" ERASING IN PROGRESS...")
 
         self._append_log(

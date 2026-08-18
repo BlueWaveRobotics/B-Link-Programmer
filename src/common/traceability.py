@@ -8,6 +8,8 @@ import csv
 from datetime import datetime
 from typing import Optional
 from src.common import get_logger
+from src.common.resources import DB_FILE_PATH
+
 
 logger = get_logger("TraceabilityDB")
 
@@ -17,7 +19,7 @@ class TraceabilityDatabase:
     Manages local SQLite database for device programming records and CSV export.
     """
 
-    def __init__(self, db_path: str = "production_logs.db"):
+    def __init__(self, db_path: str = DB_FILE_PATH):
         self.db_path = db_path
         self._init_db()
 
