@@ -16,11 +16,22 @@ class ProbeInfo:
     Data model representing a detected hardware debug probe.
     """
 
+    # def __init__(self, unique_id: str, vendor_name: str, product_name: str):
+    #     self.unique_id = unique_id
+    #     self.vendor_name = vendor_name
+    #     self.product_name = product_name
+    #     self.display_name = f"{product_name} [{unique_id[:8]}...]"
+
     def __init__(self, unique_id: str, vendor_name: str, product_name: str):
         self.unique_id = unique_id
         self.vendor_name = vendor_name
-        self.product_name = product_name
-        self.display_name = f"{product_name} [{unique_id[:8]}...]"
+
+        clean_product_name = product_name.replace("DAPLink", "B-Link")
+        if "B-Link" not in clean_product_name:
+            clean_product_name = f"B-Link {clean_product_name}"
+
+        self.product_name = clean_product_name
+        self.display_name = f"{clean_product_name} [{unique_id[:8]}...]"
 
     def to_dict(self) -> Dict[str, Any]:
         """Serializes probe metadata to a standard dictionary."""
