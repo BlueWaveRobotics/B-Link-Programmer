@@ -170,7 +170,7 @@ class OptionBytesReadWorker(QThread):
         session = _get_safe_session()
         if not session:
             self.ob_read_finished.emit(
-                False, {}, "No DAPLink probe connected.")
+                False, {}, "No B-Link probe connected.")
             return
         try:
             target: Target = session.target
@@ -223,7 +223,7 @@ class OptionBytesProgramWorker(QThread):
         # --- Session 1: unlock + erase OBs + program RDP/USER --------------
         session = _get_safe_session(max_retries=5, retry_delay=0.5)
         if not session:
-            self.ob_program_finished.emit(False, "No DAPLink probe connected.")
+            self.ob_program_finished.emit(False, "No B-Link probe connected.")
             return
         try:
             target: Target = session.target

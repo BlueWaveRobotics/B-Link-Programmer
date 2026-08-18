@@ -347,7 +347,7 @@ class ProductionProgrammerWorker(BaseWorker):
         enable_provisioning: bool = False,
         serial_payload: Optional[List[int]] = None,
         serial_address: int = 0x0801FC00,
-        interface_type: str = "DAPLink (SWD)",
+        interface_type: str = "B-Link (SWD)",
         parent: Optional[Any] = None,
     ):
         super().__init__(parent)

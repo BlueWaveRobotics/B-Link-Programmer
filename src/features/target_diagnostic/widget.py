@@ -689,7 +689,7 @@ class TargetDiagnosticWidget(QWidget):
             "color: #94A3B8; font-weight: bold; font-size: 11px;")
 
         self.cmb_interface = QComboBox()
-        self.cmb_interface.addItems(["DAPLink (SWD)", "Direct USB (DFU)"])
+        self.cmb_interface.addItems(["B-Link (SWD)", "Direct USB (DFU)"])
         # self.cmb_interface.setStyleSheet(
         #     """
         #     QComboBox {
@@ -897,7 +897,7 @@ class TargetDiagnosticWidget(QWidget):
                 self.lbl_status.setStyleSheet(
                     "color: #10B981; font-weight: bold; font-size: 13px;")
                 self._append_diag_log(
-                    "\n[INFO] DAPLink probe connected. Click 'Refresh Target' to scan MCU.")
+                    "\n[INFO] B-Link probe connected. Click 'Refresh Target' to scan MCU.")
         else:
             self.btn_refresh.setEnabled(True)
             self.btn_inspect.setEnabled(False)

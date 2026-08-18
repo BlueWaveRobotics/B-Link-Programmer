@@ -787,7 +787,7 @@ class BatchProgrammerCoordinator(QObject):
             return
 
         logger.info(
-            f"Launching parallel batch flash across {self._pending_slots} DAPLink probes...")
+            f"Launching parallel batch flash across {self._pending_slots} B-Link probes...")
         for unique_id in enabled_probe_ids:
             thread, worker = self._create_and_wire_worker(
                 unique_id=unique_id,
@@ -814,7 +814,7 @@ class BatchProgrammerCoordinator(QObject):
             return
 
         logger.info(
-            f"Launching parallel Full Chip Erase across {self._pending_slots} DAPLink probes...")
+            f"Launching parallel Full Chip Erase across {self._pending_slots} B-Link probes...")
         for unique_id in enabled_probe_ids:
             thread, worker = self._create_and_wire_worker(
                 unique_id=unique_id,

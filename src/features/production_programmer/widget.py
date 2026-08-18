@@ -74,7 +74,7 @@ class ProductionProgrammerWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        self.current_interface = "DAPLink (SWD)"
+        self.current_interface = "B-Link (SWD)"
         self._current_operation = "NONE"
 
         self.traceability_db = TraceabilityDatabase()

@@ -52,7 +52,7 @@ class ProbeFirmwareUpdateService:
                 try:
                     with open(details, "r", encoding="utf-8", errors="ignore") as f:
                         content = f.read().upper()
-                    if "BOOTLOADER" in content.split("DAPLINK MODE:")[-1][:40] \
+                    if "BOOTLOADER" in content.split("B-Link MODE:")[-1][:40] \
                        or "MAINTENANCE" in content:
                         return drive_path, "MAINTENANCE"
                     return drive_path, "B-LINK"
@@ -81,7 +81,7 @@ class ProbeFirmwareUpdateService:
 
         if mode == "B-LINK" and drive:
             print(
-                ">>> [SERVICE] Sending START_BL.ACT (standard DAPLink trigger)...")
+                ">>> [SERVICE] Sending START_BL.ACT (standard DAPLINK trigger)...")
             try:
                 path = os.path.join(drive, "START_BL.ACT")
                 with open(path, "wb") as f:

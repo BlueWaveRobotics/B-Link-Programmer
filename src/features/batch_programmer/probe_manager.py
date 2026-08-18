@@ -51,7 +51,7 @@ class ProbeManagerService:
                 vendor_name = getattr(
                     probe, "vendor_name", "B-Link") or "B-Link"
                 product_name = getattr(
-                    probe, "product_name", "DAPLink Probe") or "DAPLink Probe"
+                    probe, "product_name", "B-Link Probe") or "B-Link Probe"
 
                 info = ProbeInfo(
                     unique_id=unique_id,
@@ -61,7 +61,7 @@ class ProbeManagerService:
                 detected_probes.append(info)
 
             logger.info(
-                f"Probe scan completed. Total DAPLink probes detected: {len(detected_probes)}"
+                f"Probe scan completed. Total B-Link probes detected: {len(detected_probes)}"
             )
         except Exception as exc:
             logger.error(

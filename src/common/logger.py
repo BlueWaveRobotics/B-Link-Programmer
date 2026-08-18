@@ -8,7 +8,7 @@ from typing import Optional
 
 
 def setup_logger(
-    name: str = "DAPLinkSuite", level: int = logging.INFO
+    name: str = "B-LinkSuite", level: int = logging.INFO
 ) -> logging.Logger:
     """
     Configures and returns a singleton logger instance with formatted console output.
@@ -33,7 +33,7 @@ def get_logger(module_name: Optional[str] = None) -> logging.Logger:
     """
     Retrieves a logger instance scoped to the requesting feature module.
     """
-    base_name = "DAPLinkSuite"
+    base_name = "B-LinkSuite"
     if module_name:
         return logging.getLogger(f"{base_name}.{module_name}")
     return logging.getLogger(base_name)

@@ -4,8 +4,8 @@
 # """
 
 # from typing import Optional, List
-# from PySide6.QtCore import Qt, Slot
-# from PySide6.QtGui import QFont, QColor
+# from PySide6.QtCore import Qt, Slot, QSize
+# from PySide6.QtGui import QFont, QColor, QIcon
 # from PySide6.QtWidgets import (
 #     QWidget,
 #     QVBoxLayout,
@@ -58,11 +58,69 @@
 #         # -------------------------------------------------------------
 #         # Top Toolbar Group (2-Row Compact Grid for Responsive UX)
 #         # -------------------------------------------------------------
-#         ctrl_group = QGroupBox("Device Memory Configuration")
+#         ctrl_group = QGroupBox(" Device Memory Configuration")
+#         # ⬅️ اضافه کردن استایل رنگی برای عنوان باکس بالا
+#         ctrl_group.setStyleSheet(
+#             """
+#             QGroupBox {
+#                 border: 1px solid #1A2642;
+#                 border-radius: 6px;
+#                 margin-top: 10px;
+#                 color: #00E5FF;
+#                 font-weight: bold;
+#             }
+#             QGroupBox::title {
+#                 subcontrol-origin: margin;
+#                 subcontrol-position: top left;
+#                 padding: 0 5px;
+#             }
+#             """
+#         )
+
 #         ctrl_layout = QGridLayout(ctrl_group)
 #         ctrl_layout.setContentsMargins(12, 16, 12, 12)
 #         ctrl_layout.setHorizontalSpacing(12)
 #         ctrl_layout.setVerticalSpacing(10)
+
+#         # ⬅️ متغیر استایل اسپرت برای کمبوباکس‌ها
+#         COMBOBOX_STYLESHEET = """
+#             QComboBox {
+#                 background-color: #070B19;
+#                 color: #F8FAFC;
+#                 border: 1px solid #1A2642;
+#                 border-radius: 4px;
+#                 padding: 4px 10px;
+#                 font-family: 'Segoe UI';
+#                 font-size: 12px;
+#                 font-weight: bold;
+#             }
+#             QComboBox:hover {
+#                 border: 1px solid #00E5FF;
+#             }
+#             QComboBox::drop-down {
+#                 subcontrol-origin: padding;
+#                 subcontrol-position: top right;
+#                 width: 26px;
+#                 border-left: 1px solid #1A2642;
+#                 background-color: #121D38;
+#                 border-top-right-radius: 3px;
+#                 border-bottom-right-radius: 3px;
+#             }
+#             QComboBox::drop-down:hover {
+#                 background-color: #1A2642;
+#             }
+#             QComboBox::down-arrow {
+#                 image: url(assets/icons/chevron-down-solid-full.svg); /* ⬅️ نام فایل فلش در اینجا */
+#                 width: 12px;
+#                 height: 12px;
+#             }
+#             QComboBox QAbstractItemView {
+#                 background-color: #0F172A;
+#                 color: #F8FAFC;
+#                 selection-background-color: #0284C7;
+#                 border: 1px solid #475569;
+#             }
+#         """
 
 #         # Row 0: Address Selector (Col 0 & Col 1 spanning 2 columns) + Read Button (Col 3)
 #         ctrl_layout.addWidget(QLabel("Address:"), 0, 0)
@@ -71,22 +129,44 @@
 #         self.combo_address.setSizePolicy(
 #             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
 #         )
-#         # Prevent long preset names from forcing horizontal overlap on smaller screens
 #         self.combo_address.setMinimumWidth(140)
+
+#         # ⬅️ اعمال استایل به کمبوباکس آدرس
+#         self.combo_address.setStyleSheet(COMBOBOX_STYLESHEET)
+
 #         for label, addr in MEMORY_PRESETS:
 #             self.combo_address.addItem(label, addr)
 #         ctrl_layout.addWidget(self.combo_address, 0, 1, 1, 2)
 
-#         self.btn_read = QPushButton("📖 Read Memory")
+#         self.btn_read = QPushButton(" Read Memory")
+#         self.btn_read.setIcon(QIcon("assets/icons/book-open-solid-full.svg"))
+#         self.btn_read.setIconSize(QSize(16, 16))
 #         self.btn_read.setMinimumHeight(30)
+
+#         # ⬅️ استایل دکمه Read با تم سرمه‌ای و هاور سایان
 #         self.btn_read.setStyleSheet(
 #             """
 #             QPushButton {
-#                 background-color: #2980B9; color: white; font-weight: bold;
-#                 padding: 6px 16px; border-radius: 4px;
+#                 background-color: #121D38;
+#                 color: white;
+#                 font-weight: bold;
+#                 padding: 6px 16px;
+#                 border: 1px solid #1A2642;
+#                 border-radius: 4px;
+#                 text-align: center;
 #             }
-#             QPushButton:hover { background-color: #3498DB; }
-#             QPushButton:disabled { background-color: #555555; }
+#             QPushButton:hover {
+#                 background-color: #00B4D8;
+#                 border: 1px solid #00B4D8;
+#             }
+#             QPushButton:pressed {
+#                 background-color: #0077B6;
+#             }
+#             QPushButton:disabled {
+#                 background-color: #070B19;
+#                 color: #475569;
+#                 border: 1px dashed #1A2642;
+#             }
 #             """
 #         )
 #         self.btn_read.clicked.connect(self._on_read_clicked)
@@ -96,6 +176,21 @@
 #         ctrl_layout.addWidget(QLabel("Size (Bytes):"), 1, 0)
 #         self.txt_size = QLineEdit("0x200")  # Default 512 bytes
 #         self.txt_size.setFixedWidth(85)
+#         # ⬅️ اعمال استایل اسپرت به تکست‌باکس
+#         self.txt_size.setStyleSheet(
+#             """
+#             QLineEdit {
+#                 background-color: #070B19;
+#                 color: #F8FAFC;
+#                 border: 1px solid #1A2642;
+#                 border-radius: 4px;
+#                 padding: 4px;
+#             }
+#             QLineEdit:focus {
+#                 border: 1px solid #00E5FF;
+#             }
+#             """
+#         )
 #         ctrl_layout.addWidget(self.txt_size, 1, 1)
 
 #         ctrl_layout.addWidget(QLabel("Data Width:"), 1, 2)
@@ -103,13 +198,15 @@
 #         self.combo_width.addItems(["32-bit", "16-bit", "8-bit"])
 #         self.combo_width.setCurrentText("32-bit")
 #         self.combo_width.setFixedWidth(95)
+
+#         # ⬅️ اعمال استایل به کمبوباکس Data Width
+#         self.combo_width.setStyleSheet(COMBOBOX_STYLESHEET)
+
 #         self.combo_width.currentTextChanged.connect(
 #             self._reformat_current_view)
 #         ctrl_layout.addWidget(self.combo_width, 1, 3)
 
-#         # Set stretch so the address box takes available width without pushing others
 #         ctrl_layout.setColumnStretch(1, 1)
-
 #         main_layout.addWidget(ctrl_group)
 
 #         # -------------------------------------------------------------
@@ -120,12 +217,21 @@
 #         self.table_memory.setStyleSheet(
 #             """
 #             QTableWidget {
-#                 background-color: #1A1A1A; color: #E0E0E0;
-#                 gridline-color: #333333; border: 1px solid #444444;
+#                 background-color: #03060E; /* پس‌زمینه بسیار تیره */
+#                 color: #E2E8F0;
+#                 gridline-color: #1A2642;
+#                 border: 1px solid #1A2642;
+#                 border-radius: 4px;
+#             }
+#             QTableWidget::item:selected {
+#                 background-color: #0077B6;
 #             }
 #             QHeaderView::section {
-#                 background-color: #2D2D30; color: #CCCCCC;
-#                 font-weight: bold; padding: 4px; border: 1px solid #3E3E42;
+#                 background-color: #0C1327;
+#                 color: #00E5FF; /* سایان برای هدرها */
+#                 font-weight: bold;
+#                 padding: 4px;
+#                 border: 1px solid #1A2642;
 #             }
 #             """
 #         )
@@ -136,16 +242,13 @@
 #         )
 #         main_layout.addWidget(self.table_memory)
 
-#         # Cache for holding raw read bytes to allow fast width re-formatting
 #         self._cached_address: int = 0
 #         self._cached_data: List[int] = []
 
 #     def set_interface_type(self, interface_type: str) -> None:
-#         """این متد از سمت MainWindow صدا زده می‌شود"""
 #         self.current_interface = interface_type
 
 #     def _parse_input_number(self, text: str) -> int:
-#         """Parses hexadecimal (0x...) or decimal integer inputs safely."""
 #         clean_text = text.strip()
 #         if clean_text.lower().startswith("0x"):
 #             return int(clean_text, 16)
@@ -153,9 +256,7 @@
 
 #     @Slot()
 #     def _on_read_clicked(self) -> None:
-#         """Validates inputs and triggers background memory reading."""
 #         try:
-#             # Get address from combobox current text or user custom text
 #             addr_text = self.combo_address.currentText()
 #             if " - " in addr_text:
 #                 addr_text = self.combo_address.currentData()
@@ -167,7 +268,6 @@
 #                 raise ValueError(
 #                     "Size must be between 1 and 65536 (0x10000) bytes.")
 
-#             # Ensure 4-byte alignment for cleaner display
 #             if size_bytes % 4 != 0:
 #                 size_bytes += 4 - (size_bytes % 4)
 
@@ -176,15 +276,15 @@
 #                                 f"Invalid input parameters: {str(err)}")
 #             return
 
-#         # Disable UI during read
 #         self.btn_read.setEnabled(False)
-#         self.btn_read.setText("⏳ Reading...")
+#         self.btn_read.setIcon(
+#             QIcon("assets/icons/hourglass-half-solid-full.svg"))
+#         self.btn_read.setText(" Reading...")
 
-#         # 🌟 اصلاح مهم: ارسال interface_type به ورکر 🌟
 #         self._worker = MemoryReadWorker(
 #             address=start_address,
 #             size_bytes=size_bytes,
-#             interface_type=self.current_interface  # ⬅️ این خط اضافه شد
+#             interface_type=self.current_interface
 #         )
 #         self._worker.memory_read_finished.connect(
 #             self._on_memory_read_finished)
@@ -194,9 +294,9 @@
 #     def _on_memory_read_finished(
 #         self, success: bool, address: int, data: List[int], error_msg: str
 #     ) -> None:
-#         """Handles completion of the background memory read."""
 #         self.btn_read.setEnabled(True)
-#         self.btn_read.setText("📖 Read Memory")
+#         self.btn_read.setIcon(QIcon("assets/icons/book-open-solid-full.svg"))
+#         self.btn_read.setText(" Read Memory")
 
 #         if not success:
 #             QMessageBox.critical(self, "Hardware Error", error_msg)
@@ -208,19 +308,13 @@
 
 #     @Slot()
 #     def _reformat_current_view(self) -> None:
-#         """Re-renders the table when the user switches data width (8/16/32-bit)."""
 #         if self._cached_data:
 #             self._populate_memory_table()
 
 #     def _populate_memory_table(self) -> None:
-#         """
-#         Renders raw byte array into rows of 16 bytes formatted according
-#         to selected Data Width (Little-Endian) plus ASCII representation.
-#         """
 #         data = self._cached_data
-#         width_mode = self.combo_width.currentText()  # "32-bit", "16-bit", "8-bit"
+#         width_mode = self.combo_width.currentText()
 
-#         # Determine column count and headers based on data width (16 bytes per row)
 #         if width_mode == "32-bit":
 #             headers = ["0x0", "0x4", "0x8", "0xC", "ASCII Dump"]
 #             col_count = 4
@@ -230,7 +324,7 @@
 #                        "0x8", "0xA", "0xC", "0xE", "ASCII Dump"]
 #             col_count = 8
 #             step = 2
-#         else:  # "8-bit"
+#         else:
 #             headers = [f"0x{i:X}" for i in range(16)] + ["ASCII Dump"]
 #             col_count = 16
 #             step = 1
@@ -242,21 +336,17 @@
 #         rows = (len(data) + 15) // 16
 #         self.table_memory.setRowCount(rows)
 
-#         # Build row header addresses (0x08000000, 0x08000010, ...)
 #         row_headers = [
 #             f"0x{self._cached_address + (r * 16):08X}" for r in range(rows)]
 #         self.table_memory.setVerticalHeaderLabels(row_headers)
 
-#         # Fill table cells
 #         for r in range(rows):
 #             row_bytes = data[r * 16: (r + 1) * 16]
 
-#             # 1. Fill Hex data columns (handling ARM Little-Endian byte order)
 #             for c in range(0, 16, step):
 #                 if c < len(row_bytes):
 #                     chunk = row_bytes[c: c + step]
 #                     if step == 4:
-#                         # 32-bit Little Endian: [B0, B1, B2, B3] -> 0xB3B2B1B0
 #                         val = (
 #                             (chunk[3] << 24 | chunk[2] <<
 #                              16 | chunk[1] << 8 | chunk[0])
@@ -265,7 +355,6 @@
 #                         )
 #                         cell_text = f"{val:08X}"
 #                     elif step == 2:
-#                         # 16-bit Little Endian: [B0, B1] -> 0xB1B0
 #                         val = (
 #                             (chunk[1] << 8 | chunk[0])
 #                             if len(chunk) == 2
@@ -273,7 +362,6 @@
 #                         )
 #                         cell_text = f"{val:04X}"
 #                     else:
-#                         # 8-bit
 #                         cell_text = f"{chunk[0]:02X}"
 #                 else:
 #                     cell_text = ""
@@ -282,31 +370,24 @@
 #                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 #                 self.table_memory.setItem(r, c // step, item)
 
-#             # 2. Fill ASCII column
 #             ascii_chars = "".join(
 #                 [chr(b) if 32 <= b <= 126 else "." for b in row_bytes]
 #             )
 #             ascii_item = QTableWidgetItem(ascii_chars)
-#             # Soft teal color for ASCII
 #             ascii_item.setForeground(QColor("#4EC9B0"))
 #             self.table_memory.setItem(r, col_count, ascii_item)
 
-#         # Auto-resize columns nicely
 #         self.table_memory.horizontalHeader().setSectionResizeMode(
-#             QHeaderView.ResizeMode.ResizeToContents
+#             QHeaderView.ResizeMode.Stretch
 #         )
-#         self.table_memory.horizontalHeader().setSectionResizeMode(
-#             col_count, QHeaderView.ResizeMode.Stretch
-#         )
+#         self.table_memory.horizontalHeader().setMinimumSectionSize(45)
 
 #     def shutdown_threads(self) -> None:
-#         """Safely stops active worker threads during application exit."""
 #         if self._worker and self._worker.isRunning():
 #             logger.info("Stopping MemoryReadWorker thread...")
 #             self._worker.quit()
 #             self._worker.wait()
 #             logger.info("✔ MemoryReadWorker thread stopped.")
-
 """
 Industrial Memory Viewer Widget providing STM32CubeProgrammer-like memory inspection.
 Supports customizable base address, size, data width (8/16/32-bit), and live Hex/ASCII dump.
@@ -333,6 +414,8 @@ from PySide6.QtWidgets import (
 
 from src.common import get_logger
 from src.features.memory_viewer.worker import MemoryReadWorker
+# ⬅️ ایمپورت سرویس مدیریت پروب‌ها برای پیدا کردن لیست سخت‌افزارها
+from src.features.batch_programmer.probe_manager import ProbeManagerService
 
 logger = get_logger("MemoryViewerWidget")
 
@@ -354,9 +437,10 @@ class MemoryViewerWidget(QWidget):
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.current_interface = "DAPLink (SWD)"
+        self.current_interface = "B-Link (SWD)"
         self._worker: Optional[MemoryReadWorker] = None
         self._init_ui()
+        self.scan_connected_probes()  # ⬅️ اسکن خودکار پروب‌ها در زمان باز شدن صفحه
 
     def _init_ui(self) -> None:
         """Constructs the control toolbar and hexadecimal dump table."""
@@ -365,10 +449,9 @@ class MemoryViewerWidget(QWidget):
         main_layout.setSpacing(10)
 
         # -------------------------------------------------------------
-        # Top Toolbar Group (2-Row Compact Grid for Responsive UX)
+        # Top Toolbar Group (3-Row Compact Grid for Responsive UX)
         # -------------------------------------------------------------
         ctrl_group = QGroupBox(" Device Memory Configuration")
-        # ⬅️ اضافه کردن استایل رنگی برای عنوان باکس بالا
         ctrl_group.setStyleSheet(
             """
             QGroupBox {
@@ -391,7 +474,6 @@ class MemoryViewerWidget(QWidget):
         ctrl_layout.setHorizontalSpacing(12)
         ctrl_layout.setVerticalSpacing(10)
 
-        # ⬅️ متغیر استایل اسپرت برای کمبوباکس‌ها
         COMBOBOX_STYLESHEET = """
             QComboBox {
                 background-color: #070B19;
@@ -419,7 +501,7 @@ class MemoryViewerWidget(QWidget):
                 background-color: #1A2642;
             }
             QComboBox::down-arrow {
-                image: url(assets/icons/chevron-down-solid-full.svg); /* ⬅️ نام فایل فلش در اینجا */
+                image: url(assets/icons/chevron-down-solid-full.svg);
                 width: 12px;
                 height: 12px;
             }
@@ -431,89 +513,96 @@ class MemoryViewerWidget(QWidget):
             }
         """
 
-        # Row 0: Address Selector (Col 0 & Col 1 spanning 2 columns) + Read Button (Col 3)
-        ctrl_layout.addWidget(QLabel("Address:"), 0, 0)
+        # -------------------------------------------------------------
+        # Row 0: Target Probe Selector ⬅️ (بخش جدید)
+        # -------------------------------------------------------------
+        ctrl_layout.addWidget(QLabel("Target Probe:"), 0, 0)
+        self.combo_probe = QComboBox()
+        self.combo_probe.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self.combo_probe.setMinimumWidth(140)
+        self.combo_probe.setStyleSheet(COMBOBOX_STYLESHEET)
+        ctrl_layout.addWidget(self.combo_probe, 0, 1, 1, 2)
+
+        self.btn_scan = QPushButton(" Scan")
+        self.btn_scan.setIcon(
+            QIcon("assets/icons/arrows-rotate-solid-full.svg"))
+        self.btn_scan.setMinimumHeight(30)
+        self.btn_scan.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #121D38; color: white; font-weight: bold;
+                padding: 6px 16px; border: 1px solid #1A2642; border-radius: 4px; 
+            }
+            QPushButton:hover { background-color: #00B4D8; border: 1px solid #00B4D8; }
+            """
+        )
+        self.btn_scan.clicked.connect(self.scan_connected_probes)
+        ctrl_layout.addWidget(self.btn_scan, 0, 3)
+
+        # -------------------------------------------------------------
+        # Row 1: Address Selector + Read Button
+        # -------------------------------------------------------------
+        ctrl_layout.addWidget(QLabel("Address:"), 1, 0)
         self.combo_address = QComboBox()
         self.combo_address.setEditable(True)
         self.combo_address.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
         self.combo_address.setMinimumWidth(140)
-
-        # ⬅️ اعمال استایل به کمبوباکس آدرس
         self.combo_address.setStyleSheet(COMBOBOX_STYLESHEET)
 
         for label, addr in MEMORY_PRESETS:
             self.combo_address.addItem(label, addr)
-        ctrl_layout.addWidget(self.combo_address, 0, 1, 1, 2)
+        ctrl_layout.addWidget(self.combo_address, 1, 1, 1, 2)
 
         self.btn_read = QPushButton(" Read Memory")
         self.btn_read.setIcon(QIcon("assets/icons/book-open-solid-full.svg"))
         self.btn_read.setIconSize(QSize(16, 16))
         self.btn_read.setMinimumHeight(30)
 
-        # ⬅️ استایل دکمه Read با تم سرمه‌ای و هاور سایان
         self.btn_read.setStyleSheet(
             """
             QPushButton {
-                background-color: #121D38; 
-                color: white; 
-                font-weight: bold;
-                padding: 6px 16px; 
-                border: 1px solid #1A2642;
-                border-radius: 4px; 
-                text-align: center;
+                background-color: #121D38; color: white; font-weight: bold;
+                padding: 6px 16px; border: 1px solid #1A2642; border-radius: 4px; text-align: center;
             }
-            QPushButton:hover { 
-                background-color: #00B4D8; 
-                border: 1px solid #00B4D8;
-            }
-            QPushButton:pressed {
-                background-color: #0077B6;
-            }
-            QPushButton:disabled { 
-                background-color: #070B19; 
-                color: #475569; 
-                border: 1px dashed #1A2642; 
-            }
+            QPushButton:hover { background-color: #00B4D8; border: 1px solid #00B4D8;}
+            QPushButton:pressed { background-color: #0077B6; }
+            QPushButton:disabled { background-color: #070B19; color: #475569; border: 1px dashed #1A2642; }
             """
         )
         self.btn_read.clicked.connect(self._on_read_clicked)
-        ctrl_layout.addWidget(self.btn_read, 0, 3)
+        ctrl_layout.addWidget(self.btn_read, 1, 3)
 
-        # Row 1: Size Input (Col 0 & Col 1) + Data Width Selection (Col 2 & Col 3)
-        ctrl_layout.addWidget(QLabel("Size (Bytes):"), 1, 0)
+        # -------------------------------------------------------------
+        # Row 2: Size Input + Data Width Selection
+        # -------------------------------------------------------------
+        ctrl_layout.addWidget(QLabel("Size (Bytes):"), 2, 0)
         self.txt_size = QLineEdit("0x200")  # Default 512 bytes
         self.txt_size.setFixedWidth(85)
-        # ⬅️ اعمال استایل اسپرت به تکست‌باکس
         self.txt_size.setStyleSheet(
             """
             QLineEdit {
-                background-color: #070B19;
-                color: #F8FAFC;
-                border: 1px solid #1A2642;
-                border-radius: 4px;
-                padding: 4px;
+                background-color: #070B19; color: #F8FAFC;
+                border: 1px solid #1A2642; border-radius: 4px; padding: 4px;
             }
-            QLineEdit:focus {
-                border: 1px solid #00E5FF;
-            }
+            QLineEdit:focus { border: 1px solid #00E5FF; }
             """
         )
-        ctrl_layout.addWidget(self.txt_size, 1, 1)
+        ctrl_layout.addWidget(self.txt_size, 2, 1)
 
-        ctrl_layout.addWidget(QLabel("Data Width:"), 1, 2)
+        ctrl_layout.addWidget(QLabel("Data Width:"), 2, 2)
         self.combo_width = QComboBox()
         self.combo_width.addItems(["32-bit", "16-bit", "8-bit"])
         self.combo_width.setCurrentText("32-bit")
         self.combo_width.setFixedWidth(95)
-
-        # ⬅️ اعمال استایل به کمبوباکس Data Width
         self.combo_width.setStyleSheet(COMBOBOX_STYLESHEET)
 
         self.combo_width.currentTextChanged.connect(
             self._reformat_current_view)
-        ctrl_layout.addWidget(self.combo_width, 1, 3)
+        ctrl_layout.addWidget(self.combo_width, 2, 3)
 
         ctrl_layout.setColumnStretch(1, 1)
         main_layout.addWidget(ctrl_group)
@@ -554,6 +643,20 @@ class MemoryViewerWidget(QWidget):
         self._cached_address: int = 0
         self._cached_data: List[int] = []
 
+    # ⬅️ متد جدید برای اسکن سخت‌افزارها و پر کردن کمبوباکس
+    @Slot()
+    def scan_connected_probes(self) -> None:
+        """Scans for connected hardware probes and populates the probe selector."""
+        self.combo_probe.clear()
+        probes = ProbeManagerService.discover_connected_probes()
+
+        if not probes:
+            self.combo_probe.addItem("No Probes Found (Auto-detect)", None)
+        else:
+            for probe in probes:
+                # مقدار نمایشی به کاربر نشان داده می‌شود، مقدار دوم (unique_id) ذخیره می‌شود
+                self.combo_probe.addItem(probe.display_name, probe.unique_id)
+
     def set_interface_type(self, interface_type: str) -> None:
         self.current_interface = interface_type
 
@@ -585,15 +688,20 @@ class MemoryViewerWidget(QWidget):
                                 f"Invalid input parameters: {str(err)}")
             return
 
+        # ⬅️ دریافت آیدی پروب انتخاب شده (اگر None باشد یعنی خودکار پیدا کن)
+        selected_probe_id = self.combo_probe.currentData()
+
         self.btn_read.setEnabled(False)
         self.btn_read.setIcon(
             QIcon("assets/icons/hourglass-half-solid-full.svg"))
         self.btn_read.setText(" Reading...")
 
+        # ⬅️ ارسال آیدی پروب به ورکر
         self._worker = MemoryReadWorker(
             address=start_address,
             size_bytes=size_bytes,
-            interface_type=self.current_interface
+            interface_type=self.current_interface,
+            probe_id=selected_probe_id
         )
         self._worker.memory_read_finished.connect(
             self._on_memory_read_finished)

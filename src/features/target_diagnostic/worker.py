@@ -27,7 +27,7 @@ class TargetDiagnosticWorker(BaseWorker):
         self,
         clock_freq: int = 1000000,
         connect_mode: str = "attach",
-        interface_type: str = "DAPLink (SWD)",
+        interface_type: str = "B-Link (SWD)",
         parent: Optional[Any] = None,
     ):
         super().__init__(parent)
@@ -93,7 +93,7 @@ class TargetDiagnosticWorker(BaseWorker):
 
             if not probes:
                 err_msg = (
-                    "Connection failed: No DAPLink probe detected on USB!\n"
+                    "Connection failed: No B-Link probe detected on USB!\n"
                     "-> Please check your USB and SWD cable connections.\n"
                     "-> Unplug the USB cable and plug it back in."
                 )
@@ -213,7 +213,7 @@ class TargetDiagnosticWorker(BaseWorker):
                 probes = ConnectHelper.get_all_connected_probes(blocking=False)
                 if not probes:
                     err_msg = (
-                        "Connection failed: No DAPLink probe detected!\n"
+                        "Connection failed: No B-Link probe detected!\n"
                         "-> Please check connections and reconnect the USB cable."
                     )
                     print(

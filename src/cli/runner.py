@@ -32,11 +32,11 @@ class HeadlessRunner:
         self.profile_manager = ProfileManager()
 
     def list_connected_probes(self) -> int:
-        """Prints all detected DAPLink probes to standard output."""
-        print("\n=== Scanning USB Bus for DAPLink Probes ===")
+        """Prints all detected B-Link probes to standard output."""
+        print("\n=== Scanning USB Bus for B-Link Probes ===")
         probes = ProbeManagerService.discover_connected_probes()
         if not probes:
-            print("[WARN] No DAPLink hardware probes found.")
+            print("[WARN] No B-Link hardware probes found.")
             return 1
 
         for idx, probe in enumerate(probes, 1):

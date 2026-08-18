@@ -13,7 +13,7 @@ def build_cli_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(
         prog="blink-cli",
-        description="B-Link DAPLink Production & Diagnostic Headless Automation Tool",
+        description="B-Link Production & Diagnostic Headless Automation Tool",
         formatter_class=argparse.RawTextHelpFormatter,
     )
 
@@ -22,7 +22,7 @@ def build_cli_parser() -> argparse.ArgumentParser:
     action_group.add_argument(
         "--list-probes",
         action="store_true",
-        help="Scan USB bus and print all connected DAPLink probe unique IDs.",
+        help="Scan USB bus and print all connected B-Link probe unique IDs.",
     )
     action_group.add_argument(
         "--flash",

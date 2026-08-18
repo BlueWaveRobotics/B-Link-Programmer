@@ -51,7 +51,7 @@ class ProbeMonitorWorker(QThread):
 
                 if probes:
                     primary_probe = probes[0]
-                    name = primary_probe.product_name or "ARM CMSIS-DAP / DAPLink"
+                    name = primary_probe.product_name or "B-Link"
                     uid = primary_probe.unique_id or "UNKNOWN_ID"
 
                     # Only emit signal if state or connected probe changed
@@ -66,8 +66,8 @@ class ProbeMonitorWorker(QThread):
                         self._last_state = False
                         self._last_uid = None
                         self.status_updated.emit(
-                            False, "No DAPLink Probe Detected", "-")
-                        logger.warning("No DAPLink hardware probe connected.")
+                            False, "No B-Link Probe Detected", "-")
+                        logger.warning("No B-Link hardware probe connected.")
 
             except Exception as exc:
                 logger.debug(
@@ -158,7 +158,7 @@ class GlobalStatusBar(QStatusBar):
 
         # Left side general status message
         self.showMessage(
-            "System Ready. Monitoring DAPLink hardware connection...", 5000)
+            "System Ready. Monitoring B-Link hardware connection...", 5000)
 
     def _create_separator(self) -> QFrame:
         """Creates a subtle vertical separator for the status bar."""
@@ -183,7 +183,7 @@ class GlobalStatusBar(QStatusBar):
         if connected:
             self.lbl_led.setStyleSheet(
                 "color: #2ECC71; font-size: 14px;")  # Bright Green
-            self.lbl_status.setText("DAPLINK CONNECTED")
+            self.lbl_status.setText("B-Link CONNECTED")
             self.lbl_status.setStyleSheet("color: #2ECC71; font-weight: bold;")
             self.lbl_probe_name.setText(f"Probe: {name}")
             self.lbl_probe_id.setText(f"UID: {uid}")
@@ -195,7 +195,7 @@ class GlobalStatusBar(QStatusBar):
             self.lbl_status.setStyleSheet("color: #E74C3C; font-weight: bold;")
             self.lbl_probe_name.setText("Probe: No Hardware")
             self.lbl_probe_id.setText("UID: --")
-            self.showMessage("Warning: DAPLink probe disconnected.", 4000)
+            self.showMessage("Warning: B-Link probe disconnected.", 4000)
 
         # ⬅️ Emit the global signal to lock/unlock the right panel
         self.probe_status_changed.emit(connected, name, uid)

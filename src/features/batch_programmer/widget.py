@@ -284,7 +284,7 @@ class BatchProgrammerWidget(QWidget):
         # ----------------------------------------------------------------------
         # 2. Dynamic Probe Slots Area (Scrollable Grid)
         # ----------------------------------------------------------------------
-        slots_box = QGroupBox("Detected DAPLink Probe Slots")
+        slots_box = QGroupBox("Detected B-Link Probe Slots")
         slots_main_layout = QVBoxLayout(slots_box)
         slots_main_layout.setContentsMargins(8, 14, 8, 8)
         slots_main_layout.setSpacing(6)
@@ -354,7 +354,7 @@ class BatchProgrammerWidget(QWidget):
         main_layout.addWidget(self.log_viewer, stretch=2)
 
         self._append_log(
-            "[SYSTEM] Batch Programmer Suite Ready. Please scan connected DAPLink probes.")
+            "[SYSTEM] Batch Programmer Suite Ready. Please scan connected B-Link probes.")
 
     def _connect_coordinator_signals(self) -> None:
         """Wires batch coordinator signals to UI state handlers."""
@@ -372,11 +372,11 @@ class BatchProgrammerWidget(QWidget):
 
         if not probes:
             self.lbl_probe_count.setText(
-                "Active Probes: 0 (No DAPLink devices found)")
+                "Active Probes: 0 (No B-Link devices found)")
             self.lbl_probe_count.setStyleSheet(
                 "font-weight: bold; color: #EF4444;")
             self._append_log(
-                "[WARNING] No DAPLink hardware probes detected on USB bus.")
+                "[WARNING] No B-Link hardware probes detected on USB bus.")
             return
 
         self.lbl_probe_count.setText(f"Active Probes: {len(probes)} detected")
