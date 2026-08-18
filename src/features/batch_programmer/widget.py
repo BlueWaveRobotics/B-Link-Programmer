@@ -329,14 +329,14 @@ class BatchProgrammerWidget(QWidget):
         self.btn_start_batch = QPushButton(" START BATCH PRODUCTION FLASH")
         self.btn_start_batch.setObjectName("btnStartBatch")
         self.btn_start_batch.setIcon(
-            QIcon("assets/icons/pen-to-square-solid-full.svg"))
+            QIcon("assets/icons/.svg"))
         self.btn_start_batch.setMinimumHeight(40)
         self.btn_start_batch.clicked.connect(self._start_batch_flashing)
 
         self.btn_chip_erase = QPushButton(" FULL CHIP ERASE (ALL SLOTS)")
         self.btn_chip_erase.setObjectName("btnChipErase")
         self.btn_chip_erase.setIcon(
-            QIcon("assets/icons/eraser-solid-full.svg"))
+            QIcon("assets/icons/.svg"))
         self.btn_chip_erase.setMinimumHeight(40)
         self.btn_chip_erase.clicked.connect(self._start_batch_chip_erase)
 
@@ -574,11 +574,11 @@ class BatchProgrammerWidget(QWidget):
         self._set_action_buttons_enabled(True)
 
         self.btn_start_batch.setIcon(
-            QIcon("assets/icons/pen-to-square-solid-full.svg"))
+            QIcon("assets/icons/.svg"))
         self.btn_start_batch.setText(" START BATCH PRODUCTION FLASH")
 
         self.btn_chip_erase.setIcon(
-            QIcon("assets/icons/eraser-solid-full.svg"))
+            QIcon("assets/icons/.svg"))
         self.btn_chip_erase.setText(" FULL CHIP ERASE (ALL SLOTS)")
 
         self._append_log(
