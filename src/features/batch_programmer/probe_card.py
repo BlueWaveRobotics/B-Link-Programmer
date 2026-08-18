@@ -30,6 +30,7 @@ class ProbeSlotCard(QFrame):
         super().__init__(parent)
         self.probe_info = probe_info
         self._is_enabled = True
+        self.setObjectName("ProbeSlotCard")
         self._setup_ui()
         self.set_ready_state()
 
@@ -50,7 +51,8 @@ class ProbeSlotCard(QFrame):
         self.chk_enable = QCheckBox(self.probe_info.display_name, self)
         self.chk_enable.setChecked(True)
         self.chk_enable.setStyleSheet(
-            "font-weight: bold; font-size: 13px; color: #FFFFFF;")
+            "font-weight: bold; font-size: 13px; color: #FFFFFF;"
+        )
         self.chk_enable.toggled.connect(self._on_toggled)
 
         self.lbl_status = QLabel("READY", self)
@@ -73,7 +75,8 @@ class ProbeSlotCard(QFrame):
         uid_layout.addWidget(QLabel("Chip UID:", self))
         self.lbl_uid = QLabel("---", self)
         self.lbl_uid.setStyleSheet(
-            "font-family: Consolas, monospace; color: #4EC9B0; font-weight: bold;")
+            "font-family: Consolas, monospace; color: #4EC9B0; font-weight: bold;"
+        )
         uid_layout.addWidget(self.lbl_uid)
         uid_layout.addStretch()
         layout.addLayout(uid_layout)
@@ -105,7 +108,8 @@ class ProbeSlotCard(QFrame):
                 "background-color: #555555; color: #AAAAAA; font-weight: bold; border-radius: 4px; padding: 2px;"
             )
             self.setStyleSheet(
-                "QFrame { background-color: #1A1A1A; border: 1px solid #333333; border-radius: 8px; }")
+                "QFrame#ProbeSlotCard { background-color: #21252B; border: 2px solid #333333; border-radius: 8px; }"
+            )
         else:
             self.set_ready_state()
 
@@ -118,7 +122,8 @@ class ProbeSlotCard(QFrame):
         self.lbl_footer.setText("Slot ready for production cycle.")
         self.progress_bar.setValue(0)
         self.setStyleSheet(
-            "QFrame { background-color: #21252B; border: 2px solid #3E4451; border-radius: 8px; }")
+            "QFrame#ProbeSlotCard { background-color: #21252B; border: 2px solid #3E4451; border-radius: 8px; }"
+        )
 
     def set_busy_state(self, message: str = "Programming...") -> None:
         """Sets the card to active programming state."""
@@ -128,7 +133,8 @@ class ProbeSlotCard(QFrame):
         )
         self.lbl_footer.setText(message)
         self.setStyleSheet(
-            "QFrame { background-color: #2D2410; border: 2px solid #F39C12; border-radius: 8px; }")
+            "QFrame#ProbeSlotCard { background-color: #21252B; border: 2px solid #F39C12; border-radius: 8px; }"
+        )
 
     def set_pass_state(self, cycle_time: float, uid_str: str) -> None:
         """Sets the card to successful PASS state."""
@@ -138,10 +144,12 @@ class ProbeSlotCard(QFrame):
         )
         self.lbl_uid.setText(uid_str)
         self.lbl_footer.setText(
-            f"Verified PASS | Cycle Time: {cycle_time:.2f} s")
+            f"Verified PASS | Cycle Time: {cycle_time:.2f} s"
+        )
         self.progress_bar.setValue(100)
         self.setStyleSheet(
-            "QFrame { background-color: #142B1D; border: 2px solid #28A745; border-radius: 8px; }")
+            "QFrame#ProbeSlotCard { background-color: #21252B; border: 2px solid #28A745; border-radius: 8px; }"
+        )
 
     def set_fail_state(self, error_msg: str, cycle_time: float = 0.0) -> None:
         """Sets the card to failed FAIL state."""
@@ -152,7 +160,8 @@ class ProbeSlotCard(QFrame):
         time_text = f" ({cycle_time:.2f} s)" if cycle_time > 0 else ""
         self.lbl_footer.setText(f"FAIL{time_text}: {error_msg}")
         self.setStyleSheet(
-            "QFrame { background-color: #331212; border: 2px solid #DC3545; border-radius: 8px; }")
+            "QFrame#ProbeSlotCard { background-color: #21252B; border: 2px solid #DC3545; border-radius: 8px; }"
+        )
 
     def update_progress(self, percent: int) -> None:
         """Updates the slot-specific progress bar."""

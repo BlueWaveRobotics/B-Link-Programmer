@@ -628,7 +628,6 @@ class SidebarNavWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # استایل‌های دکمه همبرگری برای دو حالت باز و بسته
         self.btn_style_collapsed = """
             QPushButton {
                 background-color: #070B19; color: #00E5FF; border: none;
@@ -823,7 +822,7 @@ class MainWindow(QMainWindow):
             "assets/icons/microchip-solid-full.svg", "Programmer"
         )
         self.sidebar.add_nav_item(
-            "assets/icons/lock-solid-full.svg", "Option Bytes"
+            "assets/icons/sliders-solid-full.svg", "Option Bytes"
         )
         self.sidebar.add_nav_item(
             "assets/icons/display-solid-full.svg", "Serial Monitor"
