@@ -819,7 +819,7 @@ class TargetDiagnosticWidget(QWidget):
             """
             QTextEdit {
                 background-color: #03060E;
-                color: #4EC9B0; 
+                color: #00FF66; 
                 border: 1px solid #1A2642;
                 border-radius: 4px;
                 font-family: 'Consolas', 'Courier New', monospace;
