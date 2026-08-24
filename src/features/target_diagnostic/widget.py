@@ -983,6 +983,9 @@ class TargetDiagnosticWidget(QWidget):
     def on_inspect_clicked(self) -> None:
         selected_iface = self.cmb_interface.currentText()
 
+        print(
+            f"\n[DEBUG-UI] Button Clicked! Raw ComboBox Value: '{selected_iface}'")
+
         self.btn_refresh.setEnabled(False)
         self.btn_inspect.setEnabled(False)
         self.cmb_interface.setEnabled(False)
