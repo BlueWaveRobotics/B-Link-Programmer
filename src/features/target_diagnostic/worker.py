@@ -29,11 +29,13 @@ class TargetDiagnosticWorker(BaseWorker):
         connect_mode: str = "attach",
         interface_type: str = "B-Link (SWD)",
         parent: Optional[Any] = None,
+        unique_id: Optional[str] = None,
     ):
         super().__init__(parent)
         self.clock_freq = clock_freq
         self.connect_mode = connect_mode
         self.interface_type = interface_type
+        self.unique_id = unique_id
 
         print(
             f"[DEBUG-WORKER] Worker initialized. Interface: {self.interface_type}, Clock: {self.clock_freq}Hz")
@@ -42,6 +44,7 @@ class TargetDiagnosticWorker(BaseWorker):
             clock_freq=self.clock_freq,
             connect_mode=self.connect_mode,
             interface_type=self.interface_type,
+            unique_id=self.unique_id,
         )
 
     @Slot()
