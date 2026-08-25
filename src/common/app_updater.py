@@ -42,7 +42,6 @@ class AppUpdateWorker(QThread):
 
             req = urllib.request.Request(REMOTE_CONFIG_URL, headers={
                                          'User-Agent': 'B-Link-Desktop'})
-            # تایم اوت ۳ ثانیه: اگر اینترنت قطع باشد سریعاً خطا میدهد و مزاحم باز شدن برنامه نمیشود
             with urllib.request.urlopen(req, timeout=3.0, context=ctx) as response:
                 remote_data = json.loads(response.read().decode('utf-8'))
 

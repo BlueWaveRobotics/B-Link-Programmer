@@ -293,7 +293,7 @@ class MainWindow(QMainWindow):
         super().__init__(parent)
         self.current_interface = "B-Link (SWD)"
         self.setWindowTitle(
-            "B-Link Production & Diagnostic Suite | BlueWave Sport v1.0"
+            "B-Link Production & Diagnostic Suite v1.0"
         )
         self.resize(1366, 820)
         self.setMinimumSize(1024, 640)
@@ -348,7 +348,6 @@ class MainWindow(QMainWindow):
             msg_box.exec()
 
             if msg_box.clickedButton() == btn_download:
-                # باز کردن لینک دانلود در مرورگر
                 QDesktopServices.openUrl(QUrl(url))
 
     def on_global_interface_changed(self, new_interface: str) -> None:
@@ -416,8 +415,6 @@ class MainWindow(QMainWindow):
         self.log_dock = QDockWidget("System Log Console", self)
         self.log_dock.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea)
 
-        # ⬅️ پاسخ به سوال ۳: با قرار دادن Feature روی NoDockWidgetFeatures
-        # دکمه ضربدر (بستن) و شناور شدن حذف می‌شود و پنل کاملاً فیکس و همیشگی می‌شود.
         self.log_dock.setFeatures(
             QDockWidget.DockWidgetFeature.NoDockWidgetFeatures
         )
