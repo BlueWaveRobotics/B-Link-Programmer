@@ -88,6 +88,7 @@ class ProductionProgrammerWidget(QWidget):
         self._setup_ui()
         self._apply_styles()
         self._update_statistics_display()
+        self.current_mcu_target: str = "cortex_m"
 
     def set_interface_type(self, interface_type: str) -> None:
         self.current_interface = interface_type

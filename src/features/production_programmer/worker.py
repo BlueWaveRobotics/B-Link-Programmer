@@ -249,6 +249,11 @@ class ProductionProgrammerWorker(BaseWorker):
                 self.uid_read_signal.emit("DFU-DEVICE-UID")
 
             print(
+                "[DEBUG-PROD-WORKER Flash Step 3] UID reading skipped (Universal Mode).")
+            self.log(
+                "[INFO] Target UID reading bypassed to maintain universal compatibility.")
+            self.uid_read_signal.emit("UNIVERSAL-MODE-UID")
+            print(
                 "[DEBUG-PROD-WORKER Flash Step 4] Starting Flash Programming phase...")
             self.log(
                 f"[INFO] Programming firmware starting at 0x{self.base_address:08X}...")
