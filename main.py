@@ -6,6 +6,7 @@ persistent right-hand diagnostic panel, collapsible bottom log console,
 and a real-time hardware status bar.
 """
 
+from src.common.pack_downloader import GlobalDownloadDialog
 from src.common.resources import ICON_MEMORY, ICON_PROGRAMMER, ICON_LOCK, ICON_SERIAL, ICON_BATCH
 import sys
 import os
@@ -48,7 +49,6 @@ import libusb_package
 libusb_package.find()
 
 logger = get_logger("MainApplication")
-
 
 # ==============================================================================
 # BLUEWAVE SPORT & PROFESSIONAL THEME (QSS)
@@ -324,6 +324,7 @@ class MainWindow(QMainWindow):
 
         logger.info("4-pane workspace initialized successfully.")
         QTimer.singleShot(2000, self._run_silent_update_check)
+        self.global_pack_downloader = GlobalDownloadDialog(self)
 
     def _run_silent_update_check(self):
         self.updater_thread = AppUpdateWorker(self)
