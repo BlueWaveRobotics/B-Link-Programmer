@@ -848,6 +848,9 @@ class MainWindow(QMainWindow):
         self.diagnostic_widget.target_changed.connect(
             self.ob_widget.set_mcu_target
         )
+        self.diagnostic_widget.target_changed.connect(
+            self.batch_widget.set_mcu_target
+        )
 
         logger.info("4-pane workspace initialized successfully.")
         QTimer.singleShot(2000, self._run_silent_update_check)
