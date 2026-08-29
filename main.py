@@ -6,30 +6,16 @@
 # and a real-time hardware status bar.
 # """
 
-# from src.common.pack_downloader import GlobalDownloadDialog
-# from src.common.resources import ICON_MEMORY, ICON_PROGRAMMER, ICON_LOCK, ICON_SERIAL, ICON_BATCH
-# import sys
-# import os
-
-# if getattr(sys, 'frozen', False):
-#     os.environ["PATH"] += os.pathsep + sys._MEIPASS
-
-# from typing import Optional
-# from PySide6.QtCore import Qt, QSize
-# from PySide6.QtGui import QFont, QPalette, QColor, QIcon
-# from src.common import get_logger, GlobalStatusBar
-# from src.features.batch_programmer.widget import BatchProgrammerWidget
-# from src.features.target_diagnostic.widget import TargetDiagnosticWidget
-# from src.features.serial_monitor.widget import SerialMonitorWidget
-# from src.features.option_bytes.widget import OptionBytesWidget
-# from src.features.production_programmer.widget import ProductionProgrammerWidget
-# from src.features.memory_viewer.widget import MemoryViewerWidge
-# from PySide6.QtCore import QTimer, QUrl
-# from PySide6.QtWidgets import QMessageBox
-# from PySide6.QtGui import QDesktopServices
 # from src.common.app_updater import AppUpdateWorker
-# from typing import Optional
-# from PySide6.QtCore import Qt, QSize
+# from src.features.memory_viewer.widget import MemoryViewerWidget  # ⬅️ حرف t اضافه شد
+# from src.features.production_programmer.widget import ProductionProgrammerWidget
+# from src.features.option_bytes.widget import OptionBytesWidget
+# from src.features.serial_monitor.widget import SerialMonitorWidget
+# from src.features.target_diagnostic.widget import TargetDiagnosticWidget
+# from src.features.batch_programmer.widget import BatchProgrammerWidget
+# from src.common import get_logger, GlobalStatusBar
+# from src.common.resources import ICON_MEMORY, ICON_PROGRAMMER, ICON_LOCK, ICON_SERIAL, ICON_BATCH
+# from src.common.pack_downloader import GlobalDownloadDialog
 # from PySide6.QtWidgets import (
 #     QApplication,
 #     QMainWindow,
@@ -42,11 +28,21 @@
 #     QDockWidget,
 #     QPlainTextEdit,
 #     QPushButton,
+#     QMessageBox,
 # )
-# import textwrap
+# from PySide6.QtGui import QFont, QPalette, QColor, QIcon, QDesktopServices
+# from PySide6.QtCore import Qt, QSize, QTimer, QUrl
+# from typing import Optional
+# import sys
+# import os
 # import textwrap
 # import libusb_package
+
+# if getattr(sys, 'frozen', False):
+#     os.environ["PATH"] += os.pathsep + sys._MEIPASS
+
 # libusb_package.find()
+
 
 # logger = get_logger("MainApplication")
 
@@ -321,9 +317,19 @@
 #         self.status_bar.probe_status_changed.connect(
 #             self.diagnostic_widget.on_global_probe_status_changed
 #         )
+#         self.diagnostic_widget.target_changed.connect(
+#             self.memory_widget.set_mcu_target
+#         )
+#         self.diagnostic_widget.target_changed.connect(
+#             self.programmer_widget.set_mcu_target
+#         )
 
 #         self.diagnostic_widget.target_changed.connect(
-#             self.memory_viewer_widget.set_mcu_target)
+#             self.ob_widget.set_mcu_target
+#         )
+#         self.diagnostic_widget.target_changed.connect(
+#             self.batch_widget.set_mcu_target
+#         )
 
 #         logger.info("4-pane workspace initialized successfully.")
 #         QTimer.singleShot(2000, self._run_silent_update_check)
@@ -428,7 +434,6 @@
 #         self.log_console.setFont(QFont("Consolas", 10))
 #         self.log_console.setMaximumHeight(160)
 
-#         # استایل خفن ترمینالی برای بخش لاگ‌ها
 #         self.log_console.setStyleSheet(
 #             """
 #             QPlainTextEdit {
@@ -463,8 +468,6 @@
 #                 getattr(self, "serial_widget", None),
 #                 getattr(self, "status_bar", None),
 #                 getattr(self, "batch_widget", None),
-#                 # getattr(self, "merger_widget", None),
-#                 # getattr(self, "script_hooks_widget", None),
 #             ]
 
 #             for module in active_modules:
@@ -519,6 +522,7 @@
 
 # if __name__ == "__main__":
 #     main()
+
 """
 Main application entry point for B-Link DAPLink Production & Diagnostic Suite.
 Assembles all feature modules into an industrial 4-pane desktop interface
@@ -552,7 +556,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 from PySide6.QtGui import QFont, QPalette, QColor, QIcon, QDesktopServices
-from PySide6.QtCore import Qt, QSize, QTimer, QUrl
+from PySide6.QtCore import Qt, QSize, QTimer, QUrl, Slot
 from typing import Optional
 import sys
 import os
@@ -844,7 +848,6 @@ class MainWindow(QMainWindow):
         self.diagnostic_widget.target_changed.connect(
             self.programmer_widget.set_mcu_target
         )
-
         self.diagnostic_widget.target_changed.connect(
             self.ob_widget.set_mcu_target
         )
@@ -862,7 +865,6 @@ class MainWindow(QMainWindow):
         self.updater_thread.start()
 
     def _on_auto_update_result(self, success: bool, is_newer: bool, version: str, notes: str, url: str, error: str):
-
         if success and is_newer:
             msg_box = QMessageBox(self)
             msg_box.setWindowTitle("Software Update Available")
@@ -923,32 +925,69 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(self.sidebar)
         layout.addWidget(self.workspace_stack, stretch=1)
+
+        # 🌟 NEW: Right Dock Drawer Toggle Button
+        right_toggle_layout = QVBoxLayout()
+        right_toggle_layout.setContentsMargins(0, 0, 0, 0)
+        right_toggle_layout.addStretch()
+
+        self.btn_toggle_right = QPushButton("▶")
+        self.btn_toggle_right.setFixedSize(20, 90)
+        self.btn_toggle_right.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_toggle_right.setToolTip(
+            "Collapse/Expand Target Diagnostic Panel")
+        self.btn_toggle_right.setStyleSheet("""
+            QPushButton {
+                background-color: #0C1327;
+                color: #00E5FF;
+                border: 1px solid #1A2642;
+                border-right: none;
+                border-top-left-radius: 8px;
+                border-bottom-left-radius: 8px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #121D38;
+                border: 1px solid #00B4D8;
+                border-right: none;
+                color: #FFFFFF;
+            }
+        """)
+        self.btn_toggle_right.clicked.connect(self._toggle_right_dock)
+        right_toggle_layout.addWidget(self.btn_toggle_right)
+        right_toggle_layout.addStretch()
+
+        layout.addLayout(right_toggle_layout)
         self.setCentralWidget(central_container)
 
+    @Slot()
+    def _toggle_right_dock(self) -> None:
+        """ 🌟 تابع جدید برای باز و بسته‌کردن داک راست """
+        if self.right_dock.isVisible():
+            self.right_dock.hide()
+            self.btn_toggle_right.setText("◀")
+        else:
+            self.right_dock.show()
+            self.btn_toggle_right.setText("▶")
+
     def _init_right_diagnostic_dock(self) -> None:
-        self.right_dock = QDockWidget(
-            "Target Diagnostic", self
-        )
-        self.right_dock.setAllowedAreas(
-            Qt.DockWidgetArea.RightDockWidgetArea
-        )
+        self.right_dock = QDockWidget("Target Diagnostic", self)
+        self.right_dock.setAllowedAreas(Qt.DockWidgetArea.RightDockWidgetArea)
+        # غیرفعال کردن ویژگی‌های پیش‌فرض داک تا کاربر فقط با دکمه زیبای خودمان آن را باز و بسته کند
         self.right_dock.setFeatures(
-            QDockWidget.DockWidgetFeature.NoDockWidgetFeatures
-        )
+            QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
         self.right_dock.setWidget(self.diagnostic_widget)
         self.right_dock.setMinimumWidth(320)
         self.addDockWidget(
-            Qt.DockWidgetArea.RightDockWidgetArea, self.right_dock
-        )
+            Qt.DockWidgetArea.RightDockWidgetArea, self.right_dock)
         self.right_dock.show()
 
     def _init_bottom_log_dock(self) -> None:
         self.log_dock = QDockWidget("System Log Console", self)
         self.log_dock.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea)
-
         self.log_dock.setFeatures(
-            QDockWidget.DockWidgetFeature.NoDockWidgetFeatures
-        )
+            QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
 
         self.log_console = QPlainTextEdit()
         self.log_console.setReadOnly(True)
@@ -1014,7 +1053,6 @@ def main() -> None:
     )
 
     app = QApplication(sys.argv)
-
     app.setStyle("Fusion")
 
     dark_palette = QPalette()

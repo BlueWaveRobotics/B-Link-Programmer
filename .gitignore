@@ -11,3 +11,7 @@ production_logs.db
 *.csv
 *.xlsx
 exports/
+
+# 
+*.pyc
+__pycache__/
