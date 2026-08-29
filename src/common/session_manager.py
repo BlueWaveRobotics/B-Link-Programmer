@@ -799,6 +799,17 @@
 #             if not self.connect():
 #                 return False
 #         try:
+#             # 🛡️ سپر امنیتی ضد تایم‌اوت
+#             print(
+#                 "[DEBUG-SESSION ERASE SWD] Engaging Anti-Timeout Shield (Halt & PRIMASK=1)...")
+#             try:
+#                 if self.target.get_state() != Target.State.HALTED:
+#                     self.target.halt()
+#                 self.target.write_core_register('primask', 1)
+#             except Exception as e:
+#                 print(
+#                     f"[DEBUG-SESSION ERASE SWD] Warning during pre-erase halt: {e}")
+
 #             print("[DEBUG-SESSION ERASE SWD] Triggering FlashEraser with CHIP mode...")
 #             eraser = FlashEraser(self.session, FlashEraser.Mode.CHIP)
 #             eraser.erase()
@@ -860,6 +871,17 @@
 #             if not self.connect():
 #                 return False
 #         try:
+#             # 🛡️ سپر امنیتی ضد تایم‌اوت
+#             print(
+#                 "[DEBUG-SESSION PROGRAM SWD] Engaging Anti-Timeout Shield (Halt & PRIMASK=1)...")
+#             try:
+#                 if self.target.get_state() != Target.State.HALTED:
+#                     self.target.halt()
+#                 self.target.write_core_register('primask', 1)
+#             except Exception as e:
+#                 print(
+#                     f"[DEBUG-SESSION PROGRAM SWD] Warning during pre-program halt: {e}")
+
 #             print("[DEBUG-SESSION PROGRAM SWD] Initializing FileProgrammer...")
 #             programmer = FileProgrammer(self.session)
 #             programmer.program(firmware_path, base_address=base_address)
@@ -961,6 +983,7 @@ import tempfile
 import glob
 import re
 import sys
+import time
 from typing import Optional, Dict, Any, List
 
 from pyocd.core.helpers import ConnectHelper
@@ -1025,9 +1048,6 @@ class SessionManager:
         print(
             f"  -> Target Probe UID: {self.unique_id or 'Auto-Detect (First Available)'}\n")
 
-    # =========================================================================
-    # 🌟 متد جدید: پیش‌شناسایی مخفیانه (Stealth Auto-Detect)
-    # =========================================================================
     def _stealth_auto_detect(self) -> Optional[str]:
         """Connects via generic 'cortex_m', reads DBGMCU_IDCODE, and resolves true MCU name."""
         print(
@@ -1085,7 +1105,6 @@ class SessionManager:
         from PySide6.QtCore import QMetaObject, Qt, Q_RETURN_ARG, Q_ARG
 
         bus = DownloadSignalBus.instance()
-
         bus.download_preparing.emit(target_name.upper())
 
         if bus.dialog_instance:
@@ -1142,7 +1161,6 @@ class SessionManager:
                             -1, f"Downloading pack for {target_name.upper()}...")
                     elif "Extracting" in self.buffer or "Parsing" in self.buffer:
                         self.bus.download_progress.emit(100, "")
-
                     self.buffer = ""
 
             def flush(self):
@@ -1154,7 +1172,6 @@ class SessionManager:
 
         try:
             sys.stdout = OutputCatcher(bus)
-
             from pyocd.__main__ import main as pyocd_main
             pyocd_main()
 
@@ -1203,7 +1220,6 @@ class SessionManager:
 
     @staticmethod
     def list_probes() -> List[Any]:
-        """Scan and return all connected CMSIS-DAP / B-Link debug probes."""
         print("[DEBUG-SESSION list_probes] Scanning for connected debug probes...")
         probes = ConnectHelper.get_all_connected_probes()
         print(
@@ -1213,9 +1229,6 @@ class SessionManager:
         return probes
 
     def probe_usb_device(self) -> Dict[str, Any]:
-        """
-        Scans for STM32 DFU target devices using the dfu-util command line tool.
-        """
         print("\n[DEBUG-SESSION USB_PROBE] Starting USB DFU device discovery...")
         logger.info(
             "Probing for Direct USB (DFU) target devices using dfu-util...")
@@ -1232,52 +1245,40 @@ class SessionManager:
         try:
             print(f"[DEBUG-SESSION USB_PROBE] Running command: {EXE_DFU} -l")
             result = subprocess.run(
-                [EXE_DFU, "-l"],
-                capture_output=True, text=True, check=False
-            )
-
+                [EXE_DFU, "-l"], capture_output=True, text=True, check=False)
             output = result.stdout.lower()
-            print(
-                f"[DEBUG-SESSION USB_PROBE] dfu-util stdout:\n{result.stdout}")
-            if result.stderr:
-                print(
-                    f"[DEBUG-SESSION USB_PROBE] dfu-util stderr:\n{result.stderr}")
 
             if "found dfu" in output and "0483:df11" in output:
                 info["success"] = True
                 info["dpidr"] = "0483:DF11 (VID:PID)"
                 info["probe_serial"] = "USB_DFU_Link"
                 info["rdp_status"] = "LEVEL 0 (ASSUMED)"
-                print(
-                    "[DEBUG-SESSION USB_PROBE] Match found! STM32 DFU device detected.")
                 logger.info(
                     "✔ STM32 DFU Device detected successfully via dfu-util.")
             else:
                 info["error"] = "No STM32 DFU device found. Make sure BOOT0=1 and device is plugged in."
-                print(
-                    "[DEBUG-SESSION USB_PROBE] No matching 0483:df11 DFU device found in output.")
                 logger.warning("✖ No Direct USB (DFU) device detected.")
 
         except FileNotFoundError:
             err_msg = f"dfu-util not found at {EXE_DFU}! Please ensure it is bundled correctly."
             info["error"] = err_msg
-            print(f"[DEBUG-SESSION USB_PROBE CRITICAL] {err_msg}")
             logger.error(err_msg)
         except Exception as e:
             info["error"] = str(e)
-            print(f"[DEBUG-SESSION USB_PROBE EXCEPTION] {str(e)}")
             logger.error(f"DFU probe exception: {str(e)}")
 
-        print(f"[DEBUG-SESSION USB_PROBE] Result summary: {info}\n")
         return info
 
-    def probe_target_info(self, clock_freq: int = 1000000) -> Dict[str, Any]:
+    def probe_target_info(self, clock_freq: int = 1000000, target_type: Optional[str] = None) -> Dict[str, Any]:
         """
-        Lightweight attach session. Uses stealth mode (cortex_m) 
-        and reads DBGMCU to resolve actual ST MCU names without triggering downloads.
+        Lightweight attach session.
+        If target_type is 'auto', resolves ST MCU names via DBGMCU.
+        Otherwise, connects using the user-specified target.
         """
+        current_target = target_type or self.target_type or "auto"
         print(
-            f"\n[DEBUG-SESSION PROBE_INFO] Starting probe_target_info with clock={clock_freq}Hz")
+            f"\n[DEBUG-SESSION PROBE_INFO] Starting probe_target_info with clock={clock_freq}Hz, Target='{current_target}'")
+
         if "USB" in self.interface_type:
             print("[DEBUG-SESSION PROBE_INFO] Routing to USB probe handler.")
             return self.probe_usb_device()
@@ -1291,12 +1292,23 @@ class SessionManager:
             "error": "",
         }
 
+        # 🌟 مدیریت انتخاب قطعه (Auto Detect ST یا قطعه انتخابی دستی)
+        resolved_target = "cortex_m"
+        is_auto_mode = current_target.lower(
+        ) in ["auto", "none", "", "cortex_m", "stmicroelectronics"]
+
+        if is_auto_mode:
+            detected = self._stealth_auto_detect()
+            if detected:
+                resolved_target = detected
+        else:
+            resolved_target = current_target
+
         try:
-            # استفاده از حالت مخفی و امن
             options = {
                 "connect_mode": "attach",
                 "frequency": clock_freq,
-                "target_override": "cortex_m",
+                "target_override": resolved_target,
                 "halt_on_connect": False,
             }
 
@@ -1339,14 +1351,17 @@ class SessionManager:
                 info["core_type"] = "CORTEX-M"
 
             # 🌟 جادوی تشخیص اتوماتیک قطعه (بدون تکیه بر سریال پروگرمر)
-            info["part_number"] = "CORTEX-M (Generic)"
-            try:
-                idcode = target.read32(DBGMCU_IDCODE_ADDR)
-                dev_id = idcode & 0xFFF
-                if dev_id in STM32_DEVID_MAP:
-                    info["part_number"] = STM32_DEVID_MAP[dev_id].upper()
-            except:
-                pass  # قفل شده یا غیر ST
+            if is_auto_mode:
+                info["part_number"] = "CORTEX-M (Generic)"
+                try:
+                    idcode = target.read32(DBGMCU_IDCODE_ADDR)
+                    dev_id = idcode & 0xFFF
+                    if dev_id in STM32_DEVID_MAP:
+                        info["part_number"] = STM32_DEVID_MAP[dev_id].upper()
+                except:
+                    pass  # قفل شده یا غیر ST
+            else:
+                info["part_number"] = current_target.upper()
 
             info["success"] = True
             print(
@@ -1354,16 +1369,13 @@ class SessionManager:
             session.close()
 
         except Exception as e:
-            err_lower = str(e).lower()
             print(f"[DEBUG-SESSION PROBE_INFO EXCEPTION] Attempt failed: {e}")
             info["error"] = str(e)
 
         print(f"[DEBUG-SESSION PROBE_INFO] Final result: {info}\n")
         return info
 
-    def _open_session(
-        self, freq: int, mode: str, target_name: Optional[str], _auto_downloaded: bool = False
-    ) -> bool:
+    def _open_session(self, freq: int, mode: str, target_name: Optional[str], _auto_downloaded: bool = False) -> bool:
         print(
             f"\n[DEBUG-SESSION _open_session] Attempting -> Target: '{target_name}' | Clock: {freq}Hz | Mode: '{mode}'")
         options: Dict[str, Any] = {
@@ -1379,13 +1391,9 @@ class SessionManager:
 
         try:
             logger.info(
-                f"Attempting SWD connection -> Target: '{target_name}' | "
-                f"Clock: {freq // 1000} kHz | Mode: '{mode}'..."
-            )
+                f"Attempting SWD connection -> Target: '{target_name}' | Clock: {freq // 1000} kHz | Mode: '{mode}'...")
             self.session = ConnectHelper.session_with_chosen_probe(
-                options=options,
-                unique_id=self.unique_id
-            )
+                options=options, unique_id=self.unique_id)
 
             if self.session is None:
                 print(
@@ -1401,7 +1409,6 @@ class SessionManager:
 
         except Exception as e:
             err_str = str(e)
-
             match = re.search(
                 r"target type (\w+) not recognized", err_str, re.IGNORECASE)
             if match and not _auto_downloaded:
@@ -1417,9 +1424,7 @@ class SessionManager:
             return False
 
     def connect(self) -> bool:
-        """
-        Connect to target microcontroller smartly resolving its true identity.
-        """
+        """Connect to target microcontroller smartly resolving its true identity."""
         print(
             f"\n[DEBUG-SESSION CONNECT] Starting connect() procedure. Interface: {self.interface_type}")
         if "USB" in self.interface_type:
@@ -1433,7 +1438,7 @@ class SessionManager:
         # 🌟 مرحله 0: تشخیص هوشمند پیش از اتصال
         # =========================================================================
         target_to_use = self.target_type
-        if not target_to_use or target_to_use.lower() in ["auto", "none", "", "cortex_m"]:
+        if not target_to_use or target_to_use.lower() in ["auto", "none", "", "cortex_m", "stmicroelectronics"]:
             detected = self._stealth_auto_detect()
             if detected:
                 target_to_use = detected
@@ -1445,8 +1450,6 @@ class SessionManager:
             f"[DEBUG-SESSION CONNECT] Final Resolved Target: {self.target_type}")
 
         # Level 1: Primary attempt
-        print(
-            f"[DEBUG-SESSION CONNECT] Level 1 attempt -> Clock: {self.clock_freq}, Mode: {self.connect_mode}, Target: {self.target_type}")
         if self._open_session(self.clock_freq, self.connect_mode, self.target_type):
             return True
 
@@ -1463,12 +1466,9 @@ class SessionManager:
         # Level 3: Emergency diagnostic fallback (50kHz, attach mode)
         print("[DEBUG-SESSION CONNECT] Level 3 attempt -> Diagnostics Fallback: 50 kHz clock & 'attach' mode...")
         logger.warning(
-            "SWD connection error. Switching to Diagnostics Fallback: "
-            "50 kHz clock & 'attach' mode..."
-        )
-        fallback_target = (
-            "cortex_m" if self.target_type == "cortex_m" else self.target_type
-        )
+            "SWD connection error. Switching to Diagnostics Fallback: 50 kHz clock & 'attach' mode...")
+        fallback_target = "cortex_m" if self.target_type == "cortex_m" else self.target_type
+
         if self._open_session(50000, "attach", fallback_target):
             self.clock_freq = 50000
             self.connect_mode = "attach"
@@ -1479,8 +1479,7 @@ class SessionManager:
         print(
             "[DEBUG-SESSION CONNECT CRITICAL] All SWD connection strategies failed completely.")
         logger.critical(
-            "All SWD connection strategies failed. Verify physical wiring."
-        )
+            "All SWD connection strategies failed. Verify physical wiring.")
         return False
 
     def check_swd_sanity(self) -> Optional[int]:
@@ -1583,16 +1582,12 @@ class SessionManager:
         if "USB" in self.interface_type:
             logger.info(
                 f"Executing Direct USB (DFU) Read at 0x{addr:08X} ({count} bytes)...")
-
             temp_path = os.path.join(
                 tempfile.gettempdir(), "dfu_read_dump.bin")
 
             try:
                 cmd = [
-                    EXE_DFU,
-                    "-a", "0",
-                    "-s", f"0x{addr:08X}:{count}",
-                    "-U", temp_path
+                    EXE_DFU, "-a", "0", "-s", f"0x{addr:08X}:{count}", "-U", temp_path
                 ]
                 print(
                     f"[DEBUG-SESSION READ8 USB] Executing command: {' '.join(cmd)}")
@@ -1603,7 +1598,6 @@ class SessionManager:
                 if result.returncode == 0 and os.path.exists(temp_path):
                     with open(temp_path, "rb") as f:
                         raw_bytes = list(f.read())
-
                     os.remove(temp_path)
                     print(
                         f"[DEBUG-SESSION READ8 USB] Successfully read {len(raw_bytes)} bytes.")
@@ -1760,11 +1754,16 @@ class SessionManager:
                 print(
                     f"[DEBUG-SESSION ERASE SWD] Warning during pre-erase halt: {e}")
 
-            print("[DEBUG-SESSION ERASE SWD] Triggering FlashEraser with CHIP mode...")
+            print(
+                "[DEBUG-SESSION ERASE SWD] Triggering FlashEraser with CHIP mode... (Waiting for Silicon)")
+            start_hw_time = time.time()
+
             eraser = FlashEraser(self.session, FlashEraser.Mode.CHIP)
             eraser.erase()
+
+            hw_duration = time.time() - start_hw_time
             print(
-                "[DEBUG-SESSION ERASE SWD] Chip erase completed successfully via SWD.")
+                f"[DEBUG-SESSION ERASE SWD] ✔ Hardware Silicon Erase took {hw_duration:.2f} seconds!")
             logger.info("✔ Full Chip Erase completed via SWD.")
             return True
         except Exception as e:
@@ -1787,10 +1786,7 @@ class SessionManager:
                 f"Flashing firmware via USB DFU: {firmware_path} -> 0x{base_address:08X}...")
             try:
                 cmd = [
-                    EXE_DFU,
-                    "-a", "0",
-                    "-s", f"0x{base_address:08X}:leave",
-                    "-D", firmware_path
+                    EXE_DFU, "-a", "0", "-s", f"0x{base_address:08X}:leave", "-D", firmware_path
                 ]
                 print(
                     f"[DEBUG-SESSION PROGRAM USB] Running command: {' '.join(cmd)}")
@@ -1832,11 +1828,16 @@ class SessionManager:
                 print(
                     f"[DEBUG-SESSION PROGRAM SWD] Warning during pre-program halt: {e}")
 
-            print("[DEBUG-SESSION PROGRAM SWD] Initializing FileProgrammer...")
+            print(
+                "[DEBUG-SESSION PROGRAM SWD] Initializing FileProgrammer... (Waiting for Silicon)")
+            start_hw_time = time.time()
+
             programmer = FileProgrammer(self.session)
             programmer.program(firmware_path, base_address=base_address)
+
+            hw_duration = time.time() - start_hw_time
             print(
-                "[DEBUG-SESSION PROGRAM SWD] Firmware successfully programmed via SWD.")
+                f"[DEBUG-SESSION PROGRAM SWD] ✔ Hardware Flash & Verify took {hw_duration:.2f} seconds!")
             logger.info("✔ Firmware Flashed successfully via SWD.")
             return True
         except Exception as e:
