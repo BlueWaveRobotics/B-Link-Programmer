@@ -88,7 +88,7 @@
 #         self._setup_ui()
 #         self._apply_styles()
 #         self._update_statistics_display()
-#         self.current_mcu_target: str = "cortex_m"
+#         self.current_mcu_target: str = "auto"
 
 #     def set_interface_type(self, interface_type: str) -> None:
 #         self.current_interface = interface_type
@@ -473,8 +473,7 @@
 #         self.btn_erase.clicked.connect(self._start_chip_erase)
 
 #         self.btn_export = QPushButton(" EXPORT LOGS (CSV)", self)
-#         self.btn_export.setIcon(
-#             QIcon(""))
+#         self.btn_export.setIcon(QIcon(""))
 #         self.btn_export.setIconSize(QSize(16, 16))
 #         self.btn_export.setFixedHeight(40)
 #         self.btn_export.clicked.connect(self._export_logs_csv)
@@ -577,7 +576,8 @@
 #             enable_provisioning=enable_prov,
 #             serial_payload=serial_payload,
 #             serial_address=serial_addr,
-#             interface_type=self.current_interface
+#             interface_type=self.current_interface,
+#             target_type=self.current_mcu_target
 #         )
 
 #         self._worker.moveToThread(self._thread)
@@ -605,7 +605,8 @@
 #         self._worker = ProductionProgrammerWorker(
 #             clock_freq=clock_freq,
 #             connect_mode=self.combo_mode.currentText(),
-#             interface_type=self.current_interface
+#             interface_type=self.current_interface,
+#             target_type=self.current_mcu_target
 #         )
 
 #         self._worker.moveToThread(self._thread)
@@ -637,11 +638,6 @@
 #             else:
 #                 uid_valid = self.qa_service.is_valid_uid(self.current_uid)
 
-#             final_success = success and uid_valid
-#             if not uid_valid and success:
-#                 message = "Programming succeeded but target UID validation FAILED." if self._current_operation == "FLASH" and "USB" not in self.current_interface:
-
-#             uid_valid = self.qa_service.is_valid_uid(self.current_uid)
 #             final_success = success and uid_valid
 #             if not uid_valid and success:
 #                 message = "Programming succeeded but target UID validation FAILED."
@@ -717,11 +713,12 @@
 #             self.txt_file_path.setProperty("hasFile", True)
 #             self.txt_file_path.style().unpolish(self.txt_file_path)
 #             self.txt_file_path.style().polish(self.txt_file_path)
+
 """
-Production Programmer Widget for STM32 deployment.
+Production Programmer Widget for STM32 and multi-vendor ARM deployment.
 Provides visual QA PASS/FAIL banner, live shift production statistics,
 96-bit UID reading, serial number provisioning, and SQLite traceability.
-Now fully supports dynamic SWD / USB DFU interface switching.
+Supports dynamic SWD / USB DFU interface switching and automatic memory base address mapping.
 """
 import os
 from PySide6.QtCore import Qt, QThread, Slot, QPoint, QSize
@@ -747,6 +744,7 @@ from PySide6.QtGui import QPainter, QPolygon, QIcon
 from src.common.resources import ICON_ARROWS_ROTATE, ICON_FOLDER_OPEN
 from src.common import get_logger
 from src.common.traceability import TraceabilityDatabase
+from src.common.mcu_profiles import get_memory_presets
 from src.features.production_programmer.worker import ProductionProgrammerWorker
 from src.features.production_programmer.provisioning import ProvisioningService
 from src.features.production_programmer.qa_service import QAService
@@ -804,15 +802,39 @@ class ProductionProgrammerWidget(QWidget):
         self._thread: QThread | None = None
         self._worker: ProductionProgrammerWorker | None = None
 
+        self.current_mcu_target: str = "auto"
+
         self._setup_ui()
         self._apply_styles()
         self._update_statistics_display()
-        self.current_mcu_target: str = "auto"
+
+    @Slot(str)
+    def set_mcu_target(self, target_name: str) -> None:
+
+        self.current_mcu_target = target_name
+        presets = get_memory_presets(target_name)
+
+        if presets:
+            # اولین آدرس پیشنهادی دیتابیس همواره آدرس شروع Main Flash است
+            _, flash_base_hex = presets[0]
+            self.txt_base_addr.setText(flash_base_hex)
+
+            # به‌روزرسانی آدرس تزریق سریال به انتهای حافظه فلش بر اساس پایه اصلی
+            base_val = int(flash_base_hex, 16)
+            if base_val == 0x00000000:  # مانند LPC1768 یا nRF52
+                self.txt_serial_addr.setText("0x0007C000")
+            else:  # مانند خانواده STM32
+                self.txt_serial_addr.setText("0x0801FC00")
+
+        logger.info(
+            f"ProductionProgrammerWidget target set to: '{self.current_mcu_target}', Base Addr updated to: {self.txt_base_addr.text()}"
+        )
 
     def set_interface_type(self, interface_type: str) -> None:
         self.current_interface = interface_type
         logger.info(
-            f"ProductionProgrammerWidget interface set to: {self.current_interface}")
+            f"ProductionProgrammerWidget interface set to: {self.current_interface}"
+        )
 
     def _apply_styles(self) -> None:
         """BlueWave Dark Compact Industrial UI Theme."""
@@ -839,7 +861,6 @@ class ProductionProgrammerWidget(QWidget):
                 padding-top: 14px; 
             }
 
-            /* 📌 موقعیت و پدینگ عنوان باکس‌ها */
             QGroupBox::title {
                 subcontrol-origin: margin;
                 subcontrol-position: top left;
@@ -875,7 +896,6 @@ class ProductionProgrammerWidget(QWidget):
                 color: #94A3B8;
                 border: 1px solid #1A2642;
             }
-            /* استایل آبی پس از انتخاب فایل */
             QLineEdit:read-only[hasFile="true"] {
                 border: 1px solid #00E5FF;
                 color: #00E5FF;
@@ -1069,7 +1089,8 @@ class ProductionProgrammerWidget(QWidget):
         path_layout.setSpacing(8)
         self.txt_file_path = QLineEdit(file_box)
         self.txt_file_path.setPlaceholderText(
-            "Select firmware binary (.hex, .bin)...")
+            "Select firmware binary (.hex, .bin)..."
+        )
         self.txt_file_path.setReadOnly(True)
 
         self.btn_browse = QPushButton(" BROWSE...", file_box)
@@ -1084,12 +1105,13 @@ class ProductionProgrammerWidget(QWidget):
 
         address_layout = QHBoxLayout()
         address_layout.setSpacing(8)
-        lbl_addr = QLabel("Base Address (BIN):", file_box)
+        lbl_addr = QLabel("Base Address (BIN/Editable):", file_box)
         self.txt_base_addr = QLineEdit("0x08000000", file_box)
         self.txt_base_addr.setFixedWidth(120)
 
         self.chk_verify = QCheckBox(
-            "Verify Flash Memory Integrity After Programming", file_box)
+            "Verify Flash Memory Integrity After Programming", file_box
+        )
         self.chk_verify.setChecked(True)
 
         address_layout.addWidget(lbl_addr)
@@ -1110,7 +1132,8 @@ class ProductionProgrammerWidget(QWidget):
         lbl_clock = QLabel("SWD Frequency:", probe_box)
         self.combo_clock = VisibleArrowComboBox(probe_box)
         self.combo_clock.addItems(
-            ["4000 kHz", "2000 kHz", "1000 kHz", "500 kHz"])
+            ["4000 kHz", "2000 kHz", "1000 kHz", "500 kHz"]
+        )
         self.combo_clock.setCurrentText("1000 kHz")
 
         lbl_mode = QLabel("Connect Mode:", probe_box)
@@ -1225,7 +1248,7 @@ class ProductionProgrammerWidget(QWidget):
     def _browse_firmware(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
             self,
-            "Select STM32 Firmware Image",
+            "Select Firmware Image",
             "",
             "Firmware Files (*.hex *.bin);;All Files (*.*)",
         )
@@ -1253,13 +1276,15 @@ class ProductionProgrammerWidget(QWidget):
         if busy:
             self.progress_bar.setValue(0)
             self.qa_banner.set_busy_state(
-                f"Executing hardware sequence via {self.current_interface}...")
+                f"Executing hardware sequence via {self.current_interface}..."
+            )
 
     def _start_production_flash(self) -> None:
         file_path = self.txt_file_path.text().strip()
         if not file_path or not os.path.exists(file_path):
-            QMessageBox.warning(self, "File Error",
-                                "Please select a valid firmware image.")
+            QMessageBox.warning(
+                self, "File Error", "Please select a valid firmware image."
+            )
             return
 
         try:
@@ -1267,8 +1292,11 @@ class ProductionProgrammerWidget(QWidget):
             clock_freq = self._parse_clock_freq()
             serial_addr = self._parse_serial_address()
         except ValueError:
-            QMessageBox.critical(self, "Format Error",
-                                 "Invalid hexadecimal memory address syntax.")
+            QMessageBox.critical(
+                self,
+                "Format Error",
+                "Invalid hexadecimal memory address syntax.",
+            )
             return
 
         self._current_operation = "FLASH"
@@ -1296,7 +1324,7 @@ class ProductionProgrammerWidget(QWidget):
             serial_payload=serial_payload,
             serial_address=serial_addr,
             interface_type=self.current_interface,
-            target_type=self.current_mcu_target
+            target_type=self.current_mcu_target,
         )
 
         self._worker.moveToThread(self._thread)
@@ -1325,7 +1353,7 @@ class ProductionProgrammerWidget(QWidget):
             clock_freq=clock_freq,
             connect_mode=self.combo_mode.currentText(),
             interface_type=self.current_interface,
-            target_type=self.current_mcu_target
+            target_type=self.current_mcu_target,
         )
 
         self._worker.moveToThread(self._thread)
@@ -1348,18 +1376,29 @@ class ProductionProgrammerWidget(QWidget):
     def _on_operation_finished(self, success: bool, message: str) -> None:
         self._set_ui_busy(False)
         firmware_name = os.path.basename(self.txt_file_path.text()) or "N/A"
-        serial_num = self.txt_serial.text().strip(
-        ) if self.chk_serial_inject.isChecked() else None
+        serial_num = (
+            self.txt_serial.text().strip()
+            if self.chk_serial_inject.isChecked()
+            else None
+        )
 
-        if self._current_operation == "FLASH" and "USB" not in self.current_interface:
-            if self.current_uid in ["UNIVERSAL-MODE-UID", "UNKNOWN-UID"] or self.current_uid.startswith("FF"):
+        if (
+            self._current_operation == "FLASH"
+            and "USB" not in self.current_interface
+        ):
+            if (
+                self.current_uid in ["UNIVERSAL-MODE-UID", "UNKNOWN-UID"]
+                or self.current_uid.startswith("FF")
+            ):
                 uid_valid = True
             else:
                 uid_valid = self.qa_service.is_valid_uid(self.current_uid)
 
             final_success = success and uid_valid
             if not uid_valid and success:
-                message = "Programming succeeded but target UID validation FAILED."
+                message = (
+                    "Programming succeeded but target UID validation FAILED."
+                )
         else:
             final_success = success
             if self._current_operation == "ERASE":
@@ -1371,7 +1410,9 @@ class ProductionProgrammerWidget(QWidget):
         self._update_statistics_display()
 
         if final_success:
-            op_name = "FLASHED" if self._current_operation == "FLASH" else "ERASED"
+            op_name = (
+                "FLASHED" if self._current_operation == "FLASH" else "ERASED"
+            )
             self.qa_banner.set_pass_state(
                 self.last_cycle_time,
                 f"DEVICE {op_name} SUCCESSFULLY ({self.current_interface})",

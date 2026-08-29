@@ -838,10 +838,15 @@ class MainWindow(QMainWindow):
         self.status_bar.probe_status_changed.connect(
             self.diagnostic_widget.on_global_probe_status_changed
         )
-
-        # ⬅️ نام متغیر حافظه اصلاح شد تا سیگنال درست متصل شود
         self.diagnostic_widget.target_changed.connect(
             self.memory_widget.set_mcu_target
+        )
+        self.diagnostic_widget.target_changed.connect(
+            self.programmer_widget.set_mcu_target
+        )
+
+        self.diagnostic_widget.target_changed.connect(
+            self.ob_widget.set_mcu_target
         )
 
         logger.info("4-pane workspace initialized successfully.")
