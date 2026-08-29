@@ -308,7 +308,6 @@ class TargetDiagnosticWorker(BaseWorker):
         print(
             f"[DEBUG-WORKER] Worker initialized. Interface: {self.interface_type}, Clock: {self.clock_freq}Hz")
 
-        # مقداردهی به موتور سشن منیجر
         self.session_manager = SessionManager(
             clock_freq=self.clock_freq,
             connect_mode=self.connect_mode,
@@ -334,7 +333,6 @@ class TargetDiagnosticWorker(BaseWorker):
                 print("[DEBUG-WORKER Step 2] Routing to SWD bus probe...")
                 self.log("[INFO] Probing SWD bus using Smart ST Auto-Detect...")
 
-                # 1. بررسی سریع فیزیکی متصل بودن پروگرمر به USB
                 print(
                     "[DEBUG-WORKER Step 3.1] Executing ConnectHelper.get_all_connected_probes()...")
                 probes = ConnectHelper.get_all_connected_probes(blocking=False)

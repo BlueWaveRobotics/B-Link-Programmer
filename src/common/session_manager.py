@@ -1,6 +1,6 @@
 # """
 # Low-level SWD/pyOCD and Direct USB session manager handling probe connections,
-# USB DFU discovery, automatic fallback strategies, core register inspection,
+# USB DFU discovery, stealth auto-detect strategies, core register inspection,
 # and unified memory read/write operations.
 # (Features Universal ARM Global Pack Auto-Downloader with Global Signal Bus)
 # """
@@ -26,11 +26,13 @@
 #     DEMCR_ADDR,
 #     DHCSR_BITS,
 #     DEMCR_BITS,
+#     DBGMCU_IDCODE_ADDR,
+#     STM32_DEVID_MAP
 # )
 # from src.common.resources import EXE_DFU
 # from src.common.paths import get_path
 
-# # ⬅️ ایمپورت سیستم سیگنال سراسری
+# # ایمپورت سیستم سیگنال سراسری
 # from src.common.pack_downloader import DownloadSignalBus
 
 # logger = get_logger("SessionManager")
@@ -45,7 +47,7 @@
 #     def __init__(
 #         self,
 #         target_type: Optional[str] = None,
-#         clock_freq: int = 100000,
+#         clock_freq: int = 1000000,
 #         connect_mode: str = "under-reset",
 #         interface_type: str = "B-Link (SWD)",
 #         unique_id: Optional[str] = None,
@@ -65,21 +67,6 @@
 
 #         self.available_packs = []
 
-#         # 💡 نکته: این بخش برای تست دانلود آنلاین توسط شما کامنت شده است.
-#         # برای نسخه نهایی (آفلاین) می‌توانید از کامنت خارج کنید.
-#         # try:
-#         #     packs_dir = get_path("assets/packs")
-#         #     if os.path.exists(packs_dir):
-#         #         self.available_packs = glob.glob(
-#         #             os.path.join(packs_dir, "*.pack"))
-#         #         print(
-#         #             f"[DEBUG-SESSION INIT] Found {len(self.available_packs)} offline CMSIS-Pack(s).")
-#         #     else:
-#         #         print(
-#         #             "[DEBUG-SESSION INIT] No 'assets/packs' directory found. Running without offline packs.")
-#         # except Exception as e:
-#         #     print(f"[DEBUG-SESSION INIT] Error loading offline packs: {e}")
-
 #         print(f"\n[DEBUG-SESSION INIT] SessionManager created.")
 #         print(f"  -> Interface Type: {self.interface_type}")
 #         print(f"  -> Target Type: {self.target_type}")
@@ -87,6 +74,55 @@
 #         print(f"  -> Connect Mode: {self.connect_mode}")
 #         print(
 #             f"  -> Target Probe UID: {self.unique_id or 'Auto-Detect (First Available)'}\n")
+
+#     # =========================================================================
+#     # 🌟 متد جدید: پیش‌شناسایی مخفیانه (Stealth Auto-Detect)
+#     # =========================================================================
+#     def _stealth_auto_detect(self) -> Optional[str]:
+#         """Connects via generic 'cortex_m', reads DBGMCU_IDCODE, and resolves true MCU name."""
+#         print(
+#             "\n[DEBUG-SESSION AUTO-DETECT] Launching Stealth Probe for Smart ST Detection...")
+#         try:
+#             options = {
+#                 "connect_mode": "attach",
+#                 "frequency": 1000000,
+#                 "target_override": "cortex_m",  # اجبار به اتصال کور و عمومی
+#                 "halt_on_connect": False,
+#             }
+#             session = ConnectHelper.session_with_chosen_probe(
+#                 blocking=False, options=options, unique_id=self.unique_id
+#             )
+#             if not session:
+#                 print("[DEBUG-SESSION AUTO-DETECT] No probe found.")
+#                 return None
+
+#             session.open()
+#             target = session.board.target
+
+#             try:
+#                 # خواندن رجیستر اختصاصی ST
+#                 idcode = target.read32(DBGMCU_IDCODE_ADDR)
+#                 dev_id = idcode & 0xFFF
+#                 rev_id = (idcode >> 16) & 0xFFFF
+
+#                 if dev_id in STM32_DEVID_MAP:
+#                     detected_mcu = STM32_DEVID_MAP[dev_id]
+#                     print(
+#                         f"[DEBUG-SESSION AUTO-DETECT] ✔ Found ST MCU: DEV_ID=0x{dev_id:03X}, REV=0x{rev_id:04X} -> {detected_mcu.upper()}")
+#                     return detected_mcu
+#                 else:
+#                     print(
+#                         f"[DEBUG-SESSION AUTO-DETECT] ✖ Unknown DEV_ID 0x{dev_id:03X} at 0xE0042000.")
+#             except Exception as mem_exc:
+#                 print(
+#                     f"[DEBUG-SESSION AUTO-DETECT] Memory read failed (Not an ST MCU or read-protected): {mem_exc}")
+#             finally:
+#                 session.close()
+
+#         except Exception as e:
+#             print(f"[DEBUG-SESSION AUTO-DETECT EXCEPTION] {e}")
+
+#         return None
 
 #     def _download_missing_pack(self, target_name: str) -> bool:
 #         print(f"\n[DEBUG-SESSION] ===============================================")
@@ -126,7 +162,6 @@
 #             f"Downloading required CMSIS-Pack for {target_name.upper()} from ARM global index... Please wait.")
 #         bus.download_started.emit(target_name.upper())
 
-#         # ⬅️ کلاس هوشمند برای جلوگیری از خفگی گرافیک (Buffer Throttling)
 #         class OutputCatcher:
 #             def __init__(self, signal_bus):
 #                 self.bus = signal_bus
@@ -141,7 +176,6 @@
 #                 self.terminal.write(message)
 #                 self.buffer += message
 
-#                 # فقط زمانی پردازش کن که خط به اتمام رسیده باشد
 #                 if '\n' in message or '\r' in message:
 #                     match = re.search(r'\((\d+)\s*/\s*(\d+)\)', self.buffer)
 #                     if match:
@@ -149,7 +183,6 @@
 #                         total = int(match.group(2))
 #                         if total > 0:
 #                             pct = int((current / total) * 100)
-#                             # جلوگیری از اسپم (ارسال سیگنال فقط در صورت تغییر درصد)
 #                             if pct != self.last_pct:
 #                                 self.last_pct = pct
 #                                 self.bus.download_progress.emit(
@@ -160,7 +193,7 @@
 #                     elif "Extracting" in self.buffer or "Parsing" in self.buffer:
 #                         self.bus.download_progress.emit(100, "")
 
-#                     self.buffer = ""  # خالی کردن بافر بعد از پردازش هر خط
+#                     self.buffer = ""
 
 #             def flush(self):
 #                 self.terminal.flush()
@@ -216,8 +249,9 @@
 
 #         finally:
 #             sys.argv = old_argv
-#             sys.stdout = old_stdout    @ staticmethod
+#             sys.stdout = old_stdout
 
+#     @staticmethod
 #     def list_probes() -> List[Any]:
 #         """Scan and return all connected CMSIS-DAP / B-Link debug probes."""
 #         print("[DEBUG-SESSION list_probes] Scanning for connected debug probes...")
@@ -287,10 +321,10 @@
 #         print(f"[DEBUG-SESSION USB_PROBE] Result summary: {info}\n")
 #         return info
 
-#     def probe_target_info(self, clock_freq: int = 1000000, _auto_downloaded: bool = False) -> Dict[str, Any]:
+#     def probe_target_info(self, clock_freq: int = 1000000) -> Dict[str, Any]:
 #         """
-#         Lightweight attach session to retrieve probe unique ID,
-#         MCU part number, and DPIDR / USB ID without resetting the target.
+#         Lightweight attach session. Uses stealth mode (cortex_m)
+#         and reads DBGMCU to resolve actual ST MCU names without triggering downloads.
 #         """
 #         print(
 #             f"\n[DEBUG-SESSION PROBE_INFO] Starting probe_target_info with clock={clock_freq}Hz")
@@ -298,7 +332,6 @@
 #             print("[DEBUG-SESSION PROBE_INFO] Routing to USB probe handler.")
 #             return self.probe_usb_device()
 
-#         session = None
 #         info = {
 #             "success": False,
 #             "probe_serial": "Unknown",
@@ -308,46 +341,19 @@
 #             "error": "",
 #         }
 
-#         def _safe_close(sess):
-#             if sess:
-#                 try:
-#                     print(
-#                         "[DEBUG-SESSION PROBE_INFO] Closing previous session before retry...")
-#                     sess.close()
-#                 except Exception as close_exc:
-#                     print(
-#                         f"[DEBUG-SESSION PROBE_INFO] Error while closing session: {close_exc}")
-
-#         def _read_core_type(tgt) -> str:
-#             try:
-#                 core = tgt.cores[0]
-#                 code = core.core_type
-#                 try:
-#                     from pyocd.coresight.core_ids import CORE_TYPE_NAME
-#                     return str(CORE_TYPE_NAME.get(code, code)).upper()
-#                 except ImportError:
-#                     return str(code).upper()
-#             except Exception as core_exc:
-#                 print(
-#                     f"[DEBUG-SESSION PROBE_INFO] Could not read core_type: {core_exc}")
-#                 return "UNKNOWN"
-
 #         try:
+#             # استفاده از حالت مخفی و امن
 #             options = {
 #                 "connect_mode": "attach",
 #                 "frequency": clock_freq,
 #                 "target_override": "cortex_m",
 #                 "halt_on_connect": False,
 #             }
-#             if self.available_packs:
-#                 options["pack"] = self.available_packs
 
 #             print(f"[DEBUG-SESSION PROBE_INFO] Connecting options: {options}")
 
 #             session = ConnectHelper.session_with_chosen_probe(
-#                 blocking=False,
-#                 options=options,
-#                 unique_id=self.unique_id
+#                 blocking=False, options=options, unique_id=self.unique_id
 #             )
 
 #             if session is None:
@@ -358,91 +364,49 @@
 
 #             try:
 #                 info["probe_serial"] = str(session.probe.unique_id)
-#                 print(
-#                     f"[DEBUG-SESSION PROBE_INFO] Probe Unique ID: {info['probe_serial']}")
-#             except Exception as serial_exc:
-#                 print(
-#                     f"[DEBUG-SESSION PROBE_INFO] Could not read unique ID: {serial_exc}")
+#             except Exception:
 #                 info["probe_serial"] = "Detected"
 
 #             target = session.board.target
 #             dpidr_val = 0
 #             try:
 #                 dpidr_val = session.probe.read_dp(0x0)
-#                 print(
-#                     f"[DEBUG-SESSION PROBE_INFO] Read DPIDR register: 0x{dpidr_val:08X}")
-#             except Exception as dp_exc:
-#                 print(
-#                     f"[DEBUG-SESSION PROBE_INFO] Failed to read DP 0x0: {dp_exc}")
+#             except:
 #                 pass
 
-#             info["success"] = True
-#             info["part_number"] = str(target.part_number).upper()
 #             info["dpidr"] = f"0x{dpidr_val:08X}" if dpidr_val else "Detected"
-#             info["core_type"] = _read_core_type(target)
+
+#             # استخراج هسته
+#             try:
+#                 code = target.cores[0].core_type
+#                 try:
+#                     from pyocd.coresight.core_ids import CORE_TYPE_NAME
+#                     info["core_type"] = str(
+#                         CORE_TYPE_NAME.get(code, code)).upper()
+#                 except ImportError:
+#                     info["core_type"] = str(code).upper()
+#             except Exception:
+#                 info["core_type"] = "CORTEX-M"
+
+#             # 🌟 جادوی تشخیص اتوماتیک قطعه (بدون تکیه بر سریال پروگرمر)
+#             info["part_number"] = "CORTEX-M (Generic)"
+#             try:
+#                 idcode = target.read32(DBGMCU_IDCODE_ADDR)
+#                 dev_id = idcode & 0xFFF
+#                 if dev_id in STM32_DEVID_MAP:
+#                     info["part_number"] = STM32_DEVID_MAP[dev_id].upper()
+#             except:
+#                 pass  # قفل شده یا غیر ST
+
+#             info["success"] = True
 #             print(
 #                 f"[DEBUG-SESSION PROBE_INFO] Success! Target Part: {info['part_number']}, Core: {info['core_type']}")
+#             session.close()
 
 #         except Exception as e:
 #             err_lower = str(e).lower()
-#             print(
-#                 f"[DEBUG-SESSION PROBE_INFO EXCEPTION] Primary attempt failed: {e}")
-
-#             _safe_close(session)
-#             session = None
-
-#             # تشخیص هوشمند میکروی ناشناس و دانلود اتوماتیک
-#             match = re.search(r"target type (\w+) not recognized", err_lower)
-#             if match and not _auto_downloaded:
-#                 missing_mcu = match.group(1)
-#                 if self._download_missing_pack(missing_mcu):
-#                     print(
-#                         "[DEBUG-SESSION PROBE_INFO] Pack downloaded. Retrying probe automatically...")
-#                     return self.probe_target_info(clock_freq, _auto_downloaded=True)
-
-#             if "no daplink" in err_lower or "probe detected" in err_lower:
-#                 info["error"] = str(e)
-#                 print(
-#                     "[DEBUG-SESSION PROBE_INFO] No hardware probe available. Aborting fallback.")
-#                 return info
-
-#             if "not recognized" in err_lower or "target" in err_lower:
-#                 print(
-#                     "[DEBUG-SESSION PROBE_INFO] Target not recognized even after download attempt. Fallback to 'cortex_m'...")
-#                 try:
-#                     options["target_override"] = "cortex_m"
-#                     session = ConnectHelper.session_with_chosen_probe(
-#                         blocking=False,
-#                         options=options,
-#                         unique_id=self.unique_id
-#                     )
-
-#                     if session is None:
-#                         raise Exception(
-#                             "No DAPLink/SWD probe detected on USB.")
-
-#                     session.open()
-
-#                     try:
-#                         info["probe_serial"] = str(session.probe.unique_id)
-#                     except Exception:
-#                         info["probe_serial"] = "Detected"
-
-#                     target = session.board.target
-#                     info["success"] = True
-#                     info["part_number"] = "CORTEX-M (Generic)"
-#                     info["core_type"] = _read_core_type(target)
-#                     info["dpidr"] = "0x2BA01477 (Default DP)"
-#                     print(
-#                         "[DEBUG-SESSION PROBE_INFO] Fallback to generic cortex_m successful.")
-#                 except Exception as e2:
-#                     print(
-#                         f"[DEBUG-SESSION PROBE_INFO FALLBACK EXCEPTION] {e2}")
-#                     info["error"] = str(e2)
-#             else:
-#                 info["error"] = str(e)
-#         finally:
-#             _safe_close(session)
+#             print(f"[DEBUG-SESSION PROBE_INFO EXCEPTION] Attempt failed: {e}")
+#             info["error"] = str(e)
 
 #         print(f"[DEBUG-SESSION PROBE_INFO] Final result: {info}\n")
 #         return info
@@ -464,13 +428,6 @@
 #             options["pack"] = self.available_packs
 
 #         try:
-#             # ==============================================================
-#             # 🛑 کدهای موقت برای تست لایه گرافیکی 🛑
-#             # برای تست می‌توانید این ۲ خط را از کامنت خارج کنید:
-#             # if not _auto_downloaded and mode == "under-reset":
-#             #     raise Exception("target type stm32g081rb not recognized")
-#             # ==============================================================
-
 #             logger.info(
 #                 f"Attempting SWD connection -> Target: '{target_name}' | "
 #                 f"Clock: {freq // 1000} kHz | Mode: '{mode}'..."
@@ -511,7 +468,7 @@
 
 #     def connect(self) -> bool:
 #         """
-#         Connect to target microcontroller using selected interface (DAPLink or Direct USB).
+#         Connect to target microcontroller smartly resolving its true identity.
 #         """
 #         print(
 #             f"\n[DEBUG-SESSION CONNECT] Starting connect() procedure. Interface: {self.interface_type}")
@@ -521,6 +478,21 @@
 #             logger.info("Establishing direct USB session...")
 #             self.is_usb_connected = True
 #             return True
+
+#         # =========================================================================
+#         # 🌟 مرحله 0: تشخیص هوشمند پیش از اتصال
+#         # =========================================================================
+#         target_to_use = self.target_type
+#         if not target_to_use or target_to_use.lower() in ["auto", "none", "", "cortex_m"]:
+#             detected = self._stealth_auto_detect()
+#             if detected:
+#                 target_to_use = detected
+#             else:
+#                 target_to_use = "cortex_m"
+#             self.target_type = target_to_use
+
+#         print(
+#             f"[DEBUG-SESSION CONNECT] Final Resolved Target: {self.target_type}")
 
 #         # Level 1: Primary attempt
 #         print(
@@ -1004,8 +976,8 @@ from src.common.registers import (
     DEMCR_ADDR,
     DHCSR_BITS,
     DEMCR_BITS,
-    DBGMCU_IDCODE_ADDR,  # ⬅️ اضافه شده برای Auto-Detect
-    STM32_DEVID_MAP     # ⬅️ اضافه شده برای Auto-Detect
+    DBGMCU_IDCODE_ADDR,
+    STM32_DEVID_MAP
 )
 from src.common.resources import EXE_DFU
 from src.common.paths import get_path
@@ -1461,7 +1433,7 @@ class SessionManager:
         # 🌟 مرحله 0: تشخیص هوشمند پیش از اتصال
         # =========================================================================
         target_to_use = self.target_type
-        if not target_to_use or target_to_use.lower() in ["auto", "none", ""]:
+        if not target_to_use or target_to_use.lower() in ["auto", "none", "", "cortex_m"]:
             detected = self._stealth_auto_detect()
             if detected:
                 target_to_use = detected
@@ -1777,6 +1749,17 @@ class SessionManager:
             if not self.connect():
                 return False
         try:
+            # 🛡️ سپر امنیتی ضد تایم‌اوت
+            print(
+                "[DEBUG-SESSION ERASE SWD] Engaging Anti-Timeout Shield (Halt & PRIMASK=1)...")
+            try:
+                if self.target.get_state() != Target.State.HALTED:
+                    self.target.halt()
+                self.target.write_core_register('primask', 1)
+            except Exception as e:
+                print(
+                    f"[DEBUG-SESSION ERASE SWD] Warning during pre-erase halt: {e}")
+
             print("[DEBUG-SESSION ERASE SWD] Triggering FlashEraser with CHIP mode...")
             eraser = FlashEraser(self.session, FlashEraser.Mode.CHIP)
             eraser.erase()
@@ -1838,6 +1821,17 @@ class SessionManager:
             if not self.connect():
                 return False
         try:
+            # 🛡️ سپر امنیتی ضد تایم‌اوت
+            print(
+                "[DEBUG-SESSION PROGRAM SWD] Engaging Anti-Timeout Shield (Halt & PRIMASK=1)...")
+            try:
+                if self.target.get_state() != Target.State.HALTED:
+                    self.target.halt()
+                self.target.write_core_register('primask', 1)
+            except Exception as e:
+                print(
+                    f"[DEBUG-SESSION PROGRAM SWD] Warning during pre-program halt: {e}")
+
             print("[DEBUG-SESSION PROGRAM SWD] Initializing FileProgrammer...")
             programmer = FileProgrammer(self.session)
             programmer.program(firmware_path, base_address=base_address)
