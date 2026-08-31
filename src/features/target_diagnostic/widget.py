@@ -1219,12 +1219,17 @@ class TargetDiagnosticWidget(QWidget):
 
     @Slot(bool, str)
     def _on_update_finished(self, success: bool, message: str) -> None:
+        """Called automatically when the background update finishes."""
         self.btn_online_update.setText(" ONE-CLICK ONLINE UPDATE")
         self.btn_online_update.setIcon(QIcon(ICON_CLOUD_ARROW_DOWN))
         self.btn_online_update.setEnabled(True)
 
         if success:
-            QMessageBox.information(self, "Online Update Successful", message)
+            if "already up to date" in message:
+                QMessageBox.information(self, "No Update Needed", message)
+            else:
+                QMessageBox.information(
+                    self, "Online Update Successful", message)
         else:
             QMessageBox.critical(self, "Online Update Failed", message)
 

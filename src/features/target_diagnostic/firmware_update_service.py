@@ -15,11 +15,10 @@ import psutil
 import ctypes
 import ssl
 
-# ─── این مقادیر را دقیقاً مطابق daplink_addr.h پروژه‌ی فریمورت تنظیم کن ───
-IF_ROM_START = 0x08003000   # DAPLINK_ROM_IF_START
-IF_ROM_END = 0x08010000   # انتهای فلش (F103RB=128K -> 0x08020000 و ...)
+IF_ROM_START = 0x08003000
+IF_ROM_END = 0x08010000
 RAM_START = 0x20000000
-RAM_END = 0x20005000   # F103CB/RB = 20KB
+RAM_END = 0x20005000
 
 
 class ProbeFirmwareUpdateService:
@@ -66,7 +65,7 @@ class ProbeFirmwareUpdateService:
         while time.time() < deadline:
             drive, mode = cls.get_drive_info()
             if mode == target_mode:
-                time.sleep(1.0)          # فرصت پایدار شدن mount
+                time.sleep(1.0)
                 return drive
             time.sleep(0.5)
         return None
@@ -145,7 +144,6 @@ class ProbeFirmwareUpdateService:
             time.sleep(1.5)
         return False, "Timeout: probe did not reboot to interface mode."
 
-    # ───────────────────────── فرایند اصلی ─────────────────────────
     @classmethod
     def update_firmware_online(
         cls,
@@ -158,7 +156,11 @@ class ProbeFirmwareUpdateService:
             if progress_cb:
                 progress_cb(msg)
 
-        report("Step 1/6: Checking probe mode...")
+        report("Step 1/7: Checking probe mode and current version...")
+
+        current_version = cls.get_current_firmware_version()
+        report(f"Current probe firmware version detected: {current_version}")
+
         drive, mode = cls.ensure_maintenance_mode()
         if not drive:
             return False, "B-Link probe not found. Please connect it via USB."
@@ -169,7 +171,7 @@ class ProbeFirmwareUpdateService:
                 "bootloader ignores the hold_in_bl flag.\n"
                 "Flash the probe once with ST-Link using the corrected build.")
 
-        report("Step 2/6: Fetching server config...")
+        report("Step 2/7: Fetching server config...")
         opener = urllib.request.build_opener(
             urllib.request.ProxyHandler({}),
             urllib.request.HTTPSHandler(context=cls._ssl_ctx()))
@@ -181,14 +183,26 @@ class ProbeFirmwareUpdateService:
                 cfg = json.loads(r.read().decode('utf-8'))
             sec = cfg.get("BLink_firmware", {})
             url = sec.get("firmware_url")
-            version = sec.get("latest_version") or sec.get(
+
+            target_version = sec.get("latest_version") or sec.get(
                 "lstest_version", "v1.0.0")
+
             if not url:
                 return False, "firmware_url missing in server JSON."
+
         except Exception as e:
             return False, f"Network error while fetching config:\n{e}"
 
-        report(f"Step 3/6: Downloading firmware {version}...")
+        report(f"Server latest version: {target_version}")
+
+        report("Step 3/7: Comparing versions...")
+        if current_version != "Unknown" and current_version == target_version:
+
+            return True, f"Your B-Link probe is already up to date!\n\nCurrent Version: {current_version}\nServer Version: {target_version}"
+
+        report(
+            f"Step 4/7: Update required. Downloading firmware {target_version}...")
+
         suffix = ".hex" if url.lower().endswith(".hex") else ".bin"
         fd, temp_path = tempfile.mkstemp(suffix=suffix)
         os.close(fd)
@@ -200,13 +214,12 @@ class ProbeFirmwareUpdateService:
             cls._cleanup(temp_path)
             return False, f"Firmware download failed:\n{e}"
 
-        report("Step 4/6: Validating firmware image...")
+        report("Step 5/7: Validating firmware image...")
         ok, kind = cls.validate_firmware_file(temp_path)
         if not ok:
-            # فایل را برای بازرسی نگه می‌داریم
             return False, f"Firmware validation FAILED:\n{kind}\n\nTemp file kept at:\n{temp_path}"
 
-        report("Step 5/6: Copying to MAINTENANCE drive...")
+        report("Step 6/7: Copying to MAINTENANCE drive...")
         try:
             dest = os.path.join(drive, "firmware" + suffix)
             with open(temp_path, 'rb') as src, open(dest, 'wb') as dst:
@@ -214,18 +227,18 @@ class ProbeFirmwareUpdateService:
                 dst.flush()
                 os.fsync(dst.fileno())
         except Exception as e:
-            # قطع درایو وسط کپی می‌تواند یعنی فلش شروع شده؛ ادامه به verify
             print(f">>> [SERVICE] copy interrupted (may be normal): {e}")
         finally:
             cls._cleanup(temp_path)
 
-        report("Step 6/6: Verifying flash result...")
+        report("Step 7/7: Verifying flash result...")
         ok, msg = cls.verify_flash_result()
         if ok:
-            return True, f"✔ B-Link probe updated to {version}!\n{msg}"
+            return True, f"✔ B-Link probe updated successfully from {current_version} to {target_version}!\n{msg}"
         return False, msg
 
     # ───────────────────────── helpers ─────────────────────────
+
     @staticmethod
     def _ssl_ctx():
         ctx = ssl.create_default_context()
@@ -241,17 +254,46 @@ class ProbeFirmwareUpdateService:
         except Exception:
             pass
 
+    @classmethod
+    def get_current_firmware_version(cls) -> str:
+        """
+        Reads the DETAILS.TXT file from the probe drive to find the current 'Interface Version'.
+        Returns the version string (e.g., '0259' or 'v0259') or 'Unknown' if not found.
+        """
+        drive, mode = cls.get_drive_info()
+        if not drive:
+            return "Unknown"
+
+        details_path = os.path.join(drive, "DETAILS.TXT")
+        if not os.path.exists(details_path):
+            return "Unknown"
+
+        try:
+            with open(details_path, "r", encoding="utf-8", errors="ignore") as f:
+                lines = f.readlines()
+
+            for line in lines:
+                if line.startswith("Interface Version:"):
+                    version_str = line.split(":")[1].strip()
+                    if not version_str.startswith('v'):
+                        version_str = 'v' + version_str
+                    return version_str
+
+        except Exception as e:
+            print(f">>> [SERVICE] Error reading DETAILS.TXT for version: {e}")
+            pass
+
+        return "Unknown"
+
 
 # ─────────────────────────────────────────────────────────────
 #  Background worker — runs the whole update flow off the UI thread
 # ─────────────────────────────────────────────────────────────
-
-
 class FirmwareUpdateWorker(QThread):
     """Runs ProbeFirmwareUpdateService.update_firmware_online in background."""
 
-    progress = Signal(str)              # پیام مرحله‌ی جاری برای نمایش روی دکمه
-    finished_update = Signal(bool, str)  # (موفق/ناموفق ، پیام نهایی)
+    progress = Signal(str)
+    finished_update = Signal(bool, str)
 
     def __init__(self, config_url: str, parent=None):
         super().__init__(parent)
