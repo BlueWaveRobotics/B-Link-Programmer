@@ -14,7 +14,7 @@ from src.features.serial_monitor.widget import SerialMonitorWidget
 from src.features.target_diagnostic.widget import TargetDiagnosticWidget
 from src.features.batch_programmer.widget import BatchProgrammerWidget
 from src.common import get_logger, GlobalStatusBar
-from src.common.resources import ICON_MEMORY, ICON_PROGRAMMER, ICON_LOCK, ICON_SERIAL, ICON_BATCH
+from src.common.resources import ICON_MEMORY, ICON_PROGRAMMER, ICON_LOCK, ICON_SERIAL, ICON_BATCH, MAIN_ICON
 from src.common.pack_downloader import GlobalDownloadDialog
 from PySide6.QtWidgets import (
     QApplication,
@@ -438,7 +438,6 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _toggle_right_dock(self) -> None:
-        """ 🌟 تابع جدید برای باز و بسته‌کردن داک راست """
         if self.right_dock.isVisible():
             self.right_dock.hide()
             self.btn_toggle_right.setText("◀")
@@ -449,7 +448,6 @@ class MainWindow(QMainWindow):
     def _init_right_diagnostic_dock(self) -> None:
         self.right_dock = QDockWidget("Target Diagnostic", self)
         self.right_dock.setAllowedAreas(Qt.DockWidgetArea.RightDockWidgetArea)
-        # غیرفعال کردن ویژگی‌های پیش‌فرض داک تا کاربر فقط با دکمه زیبای خودمان آن را باز و بسته کند
         self.right_dock.setFeatures(
             QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
         self.right_dock.setWidget(self.diagnostic_widget)
@@ -528,6 +526,8 @@ def main() -> None:
     )
 
     app = QApplication(sys.argv)
+    app.setWindowIcon(QIcon(MAIN_ICON)
+                      )
     app.setStyle("Fusion")
 
     dark_palette = QPalette()

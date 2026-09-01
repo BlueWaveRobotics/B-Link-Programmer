@@ -5,6 +5,7 @@ from src.common.paths import get_path, get_storage_path
 DB_FILE_PATH = get_storage_path("production_logs.db")
 # ///////
 
+MAIN_ICON = get_path("assets/app.ico")
 
 # /////////////
 DLL_LIBUSB = get_path("libusb-1.0.dll")
