@@ -27,6 +27,7 @@
 #         clock_freq: int = 1000000,
 #         connect_mode: str = "attach",
 #         interface_type: str = "B-Link (SWD)",
+#         target_type: str = "auto",  # 🌟 پارامتر جدید برای دریافت نام میکرو از کاربر
 #         parent: Optional[Any] = None,
 #         unique_id: Optional[str] = None,
 #     ):
@@ -34,12 +35,14 @@
 #         self.clock_freq = clock_freq
 #         self.connect_mode = connect_mode
 #         self.interface_type = interface_type
+#         self.target_type = target_type  # 🌟 ذخیره نام میکرو
 #         self.unique_id = unique_id
 
 #         print(
-#             f"[DEBUG-WORKER] Worker initialized. Interface: {self.interface_type}, Clock: {self.clock_freq}Hz")
+#             f"[DEBUG-WORKER] Worker initialized. Interface: {self.interface_type}, Target: '{self.target_type}', Clock: {self.clock_freq}Hz")
 
 #         self.session_manager = SessionManager(
+#             target_type=self.target_type,  # 🌟 پاس دادن تارگت به موتور سشن
 #             clock_freq=self.clock_freq,
 #             connect_mode=self.connect_mode,
 #             interface_type=self.interface_type,
@@ -62,7 +65,8 @@
 #                 info = self.session_manager.probe_usb_device()
 #             else:
 #                 print("[DEBUG-WORKER Step 2] Routing to SWD bus probe...")
-#                 self.log("[INFO] Probing SWD bus using Smart ST Auto-Detect...")
+#                 self.log(
+#                     f"[INFO] Probing SWD bus (Target Mode: '{self.target_type}')...")
 
 #                 print(
 #                     "[DEBUG-WORKER Step 3.1] Executing ConnectHelper.get_all_connected_probes()...")
@@ -80,13 +84,13 @@
 #                         {"success": False, "error": err_msg, "rdp_status": "ERROR"})
 #                     return
 
-#                 # 2. فراخوانی متد پیشرفته و مخفی از سشن منیجر
 #                 print(
 #                     "[DEBUG-WORKER Step 4] Calling session_manager.probe_target_info()...")
 #                 info = self.session_manager.probe_target_info(
-#                     clock_freq=self.clock_freq)
+#                     clock_freq=self.clock_freq,
+#                     target_type=self.target_type
+#                 )
 
-#             # ثبت و اعتبارسنجی لاگ‌ها
 #             if info and info.get("success"):
 #                 self.log(
 #                     f"[INFO] ✔ Found Target: {info.get('part_number')} | "
@@ -151,7 +155,6 @@
 #                     return
 
 #                 print("[DEBUG-WORKER Step 2.3] Calling session_manager.connect()...")
-#                 # با فراخوانی متد connect، سیستم Auto-Detect استارت می‌خورد
 #                 if not self.session_manager.connect():
 #                     print(
 #                         "[DEBUG-WORKER Step 2.4] session_manager.connect() returned False.")
@@ -187,6 +190,7 @@
 #                 self.session_manager.close()
 #             print(
 #                 "=================== [INSPECT CORE END] ===================\n")
+
 """
 Background worker for executing target MCU identification, RDP lock scanning,
 and low-level ARM Cortex-M core diagnostics without freezing the user interface.
@@ -216,7 +220,7 @@ class TargetDiagnosticWorker(BaseWorker):
         clock_freq: int = 1000000,
         connect_mode: str = "attach",
         interface_type: str = "B-Link (SWD)",
-        target_type: str = "auto",  # 🌟 پارامتر جدید برای دریافت نام میکرو از کاربر
+        target_type: str = "auto",  # پارامتر اضافه‌شده برای دریافت تارگت از UI
         parent: Optional[Any] = None,
         unique_id: Optional[str] = None,
     ):
@@ -224,14 +228,14 @@ class TargetDiagnosticWorker(BaseWorker):
         self.clock_freq = clock_freq
         self.connect_mode = connect_mode
         self.interface_type = interface_type
-        self.target_type = target_type  # 🌟 ذخیره نام میکرو
+        self.target_type = target_type  # ذخیره نام تارگت
         self.unique_id = unique_id
 
         print(
             f"[DEBUG-WORKER] Worker initialized. Interface: {self.interface_type}, Target: '{self.target_type}', Clock: {self.clock_freq}Hz")
 
         self.session_manager = SessionManager(
-            target_type=self.target_type,  # 🌟 پاس دادن تارگت به موتور سشن
+            target_type=self.target_type,  # ارسال به سشن منیجر
             clock_freq=self.clock_freq,
             connect_mode=self.connect_mode,
             interface_type=self.interface_type,
@@ -275,7 +279,6 @@ class TargetDiagnosticWorker(BaseWorker):
 
                 print(
                     "[DEBUG-WORKER Step 4] Calling session_manager.probe_target_info()...")
-                # 🌟 ارسال target_type به تابع جستجوی سشن منیجر
                 info = self.session_manager.probe_target_info(
                     clock_freq=self.clock_freq,
                     target_type=self.target_type

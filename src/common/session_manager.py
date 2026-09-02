@@ -1015,7 +1015,6 @@ class SessionManager:
 
         # USB Direct Session state
         self.is_usb_connected: bool = False
-
         self.available_packs = []
 
         print(f"\n[DEBUG-SESSION INIT] SessionManager created.")
@@ -1027,28 +1026,33 @@ class SessionManager:
             f"  -> Target Probe UID: {self.unique_id or 'Auto-Detect (First Available)'}\n")
 
     def _stealth_auto_detect(self) -> Optional[str]:
-        """Connects via generic 'cortex_m', reads DBGMCU_IDCODE, and resolves true MCU name."""
+        """
+        Connects via generic 'cortex_m', reads DBGMCU_IDCODE, and resolves true MCU name.
+        Targeted to a specific probe if unique_id is provided.
+        """
         print(
             "\n[DEBUG-SESSION AUTO-DETECT] Launching Stealth Probe for Smart ST Detection...")
         try:
             options = {
                 "connect_mode": "attach",
                 "frequency": 1000000,
-                "target_override": "cortex_m",  # اجبار به اتصال کور و عمومی
+                "target_override": "cortex_m",  # Force generic blind connection
                 "halt_on_connect": False,
             }
+            # Inject unique_id for multi-probe routing
             session = ConnectHelper.session_with_chosen_probe(
                 blocking=False, options=options, unique_id=self.unique_id
             )
+
             if not session:
-                print("[DEBUG-SESSION AUTO-DETECT] No probe found.")
+                print("[DEBUG-SESSION AUTO-DETECT] No probe found matching UID.")
                 return None
 
             session.open()
             target = session.board.target
 
             try:
-                # خواندن رجیستر اختصاصی ST
+                # Read ST specific DBGMCU register
                 idcode = target.read32(DBGMCU_IDCODE_ADDR)
                 dev_id = idcode & 0xFFF
                 rev_id = (idcode >> 16) & 0xFFFF
@@ -1063,7 +1067,7 @@ class SessionManager:
                         f"[DEBUG-SESSION AUTO-DETECT] ✖ Unknown DEV_ID 0x{dev_id:03X} at 0xE0042000.")
             except Exception as mem_exc:
                 print(
-                    f"[DEBUG-SESSION AUTO-DETECT] Memory read failed (Not an ST MCU or read-protected): {mem_exc}")
+                    f"[DEBUG-SESSION AUTO-DETECT] Memory read failed (Not ST or read-protected): {mem_exc}")
             finally:
                 session.close()
 
@@ -1071,6 +1075,130 @@ class SessionManager:
             print(f"[DEBUG-SESSION AUTO-DETECT EXCEPTION] {e}")
 
         return None
+
+    # def _download_missing_pack(self, target_name: str) -> bool:
+    #     print(f"\n[DEBUG-SESSION] ===============================================")
+    #     print(f"[DEBUG-SESSION] 🌍 ONLINE CMSIS-PACK DOWNLOADER TRIGGERED")
+    #     print(
+    #         f"[DEBUG-SESSION] Fetching hardware definitions for: {target_name.upper()}")
+    #     print(f"[DEBUG-SESSION] ===============================================\n")
+
+    #     from src.common.pack_downloader import DownloadSignalBus
+    #     from PySide6.QtCore import QMetaObject, Qt, Q_RETURN_ARG, Q_ARG
+
+    #     bus = DownloadSignalBus.instance()
+    #     bus.download_preparing.emit(target_name.upper())
+
+    #     if bus.dialog_instance:
+    #         user_agreed = False
+    #         try:
+    #             user_agreed = QMetaObject.invokeMethod(
+    #                 bus.dialog_instance,
+    #                 "ask_permission",
+    #                 Qt.ConnectionType.BlockingQueuedConnection,
+    #                 Q_RETURN_ARG(bool),
+    #                 Q_ARG(str, target_name.upper())
+    #             )
+    #         except Exception as e:
+    #             logger.error(f"Could not ask for permission: {e}")
+    #             user_agreed = True
+
+    #         if not user_agreed:
+    #             logger.warning(
+    #                 f"User cancelled the required download for {target_name.upper()}.")
+    #             bus.download_finished.emit(False, "Cancelled by user.")
+    #             return False
+
+    #     logger.warning(
+    #         f"Downloading required CMSIS-Pack for {target_name.upper()} from ARM global index... Please wait.")
+    #     bus.download_started.emit(target_name.upper())
+
+    #     class OutputCatcher:
+    #         def __init__(self, signal_bus):
+    #             self.bus = signal_bus
+    #             self.terminal = sys.__stdout__
+    #             self.last_pct = -1
+    #             self.buffer = ""
+
+    #         def write(self, message):
+    #             if self.bus.cancel_requested:
+    #                 raise InterruptedError("USER_CANCELLED")
+
+    #             self.terminal.write(message)
+    #             self.buffer += message
+
+    #             if '\n' in message or '\r' in message:
+    #                 match = re.search(r'\((\d+)\s*/\s*(\d+)\)', self.buffer)
+    #                 if match:
+    #                     current = int(match.group(1))
+    #                     total = int(match.group(2))
+    #                     if total > 0:
+    #                         pct = int((current / total) * 100)
+    #                         if pct != self.last_pct:
+    #                             self.last_pct = pct
+    #                             self.bus.download_progress.emit(
+    #                                 pct, f"Downloading Index & Packages: {current} / {total}")
+    #                 elif "Downloading packs" in self.buffer:
+    #                     self.bus.download_progress.emit(
+    #                         -1, f"Downloading pack for {target_name.upper()}...")
+    #                 elif "Extracting" in self.buffer or "Parsing" in self.buffer:
+    #                     self.bus.download_progress.emit(100, "")
+    #                 self.buffer = ""
+
+    #         def flush(self):
+    #             self.terminal.flush()
+
+    #     old_stdout = sys.stdout
+    #     old_argv = sys.argv
+    #     sys.argv = ["pyocd", "pack", "install", target_name]
+
+    #     try:
+    #         sys.stdout = OutputCatcher(bus)
+    #         from pyocd.__main__ import main as pyocd_main
+    #         pyocd_main()
+
+    #         try:
+    #             pack_target.PackTargets.clear_cache()
+    #         except AttributeError:
+    #             pass
+
+    #         msg = f"✔ Pack for {target_name.upper()} downloaded and cached successfully!"
+    #         logger.info(msg)
+    #         bus.download_finished.emit(True, msg)
+    #         return True
+
+    #     except InterruptedError:
+    #         msg = f"Download for {target_name.upper()} was cancelled by user."
+    #         logger.warning(msg)
+    #         bus.download_finished.emit(False, msg)
+    #         return False
+
+    #     except SystemExit as se:
+    #         if se.code == 0:
+    #             try:
+    #                 pack_target.PackTargets.clear_cache()
+    #             except AttributeError:
+    #                 pass
+    #             msg = f"✔ Pack for {target_name.upper()} downloaded and cached successfully!"
+    #             logger.info(msg)
+    #             bus.download_finished.emit(True, msg)
+    #             return True
+    #         else:
+    #             msg = f"Failed to download pack for {target_name.upper()} (Exit code {se.code}). Check internet connection."
+    #             logger.error(msg)
+    #             bus.download_finished.emit(False, msg)
+    #             return False
+
+    #     except Exception as e:
+    #         msg = f"Error communicating with ARM index: {str(e)}"
+    #         print(f"[DEBUG-SESSION] Pack downloader exception: {e}")
+    #         logger.error(msg)
+    #         bus.download_finished.emit(False, msg)
+    #         return False
+
+    #     finally:
+    #         sys.argv = old_argv
+    #         sys.stdout = old_stdout
 
     def _download_missing_pack(self, target_name: str) -> bool:
         print(f"\n[DEBUG-SESSION] ===============================================")
@@ -1081,6 +1209,7 @@ class SessionManager:
 
         from src.common.pack_downloader import DownloadSignalBus
         from PySide6.QtCore import QMetaObject, Qt, Q_RETURN_ARG, Q_ARG
+        import subprocess
 
         bus = DownloadSignalBus.instance()
         bus.download_preparing.emit(target_name.upper())
@@ -1106,71 +1235,74 @@ class SessionManager:
                 return False
 
         logger.warning(
-            f"Downloading required CMSIS-Pack for {target_name.upper()} from ARM global index... Please wait.")
+            f"Downloading required CMSIS-Pack for {target_name.upper()}... Please wait.")
         bus.download_started.emit(target_name.upper())
 
-        class OutputCatcher:
-            def __init__(self, signal_bus):
-                self.bus = signal_bus
-                self.terminal = sys.__stdout__
-                self.last_pct = -1
-                self.buffer = ""
+        def run_pack_install(t_name: str) -> bool:
+            # استفاده از sys.executable برای اجرای ایمن ماژول pyocd با مفسر فعلی پایتون
+            cmd = [sys.executable, "-m", "pyocd", "pack", "install", t_name]
+            print(f"[DEBUG-SESSION] Running: {' '.join(cmd)}")
 
-            def write(self, message):
-                if self.bus.cancel_requested:
-                    raise InterruptedError("USER_CANCELLED")
-
-                self.terminal.write(message)
-                self.buffer += message
-
-                if '\n' in message or '\r' in message:
-                    match = re.search(r'\((\d+)\s*/\s*(\d+)\)', self.buffer)
-                    if match:
-                        current = int(match.group(1))
-                        total = int(match.group(2))
-                        if total > 0:
-                            pct = int((current / total) * 100)
-                            if pct != self.last_pct:
-                                self.last_pct = pct
-                                self.bus.download_progress.emit(
-                                    pct, f"Downloading Index & Packages: {current} / {total}")
-                    elif "Downloading packs" in self.buffer:
-                        self.bus.download_progress.emit(
-                            -1, f"Downloading pack for {target_name.upper()}...")
-                    elif "Extracting" in self.buffer or "Parsing" in self.buffer:
-                        self.bus.download_progress.emit(100, "")
-                    self.buffer = ""
-
-            def flush(self):
-                self.terminal.flush()
-
-        old_stdout = sys.stdout
-        old_argv = sys.argv
-        sys.argv = ["pyocd", "pack", "install", target_name]
-
-        try:
-            sys.stdout = OutputCatcher(bus)
-            from pyocd.__main__ import main as pyocd_main
-            pyocd_main()
+            flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
 
             try:
-                pack_target.PackTargets.clear_cache()
-            except AttributeError:
-                pass
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    creationflags=flags
+                )
+            except Exception as launch_exc:
+                print(
+                    f"[DEBUG-SESSION] Failed to launch subprocess: {launch_exc}")
+                logger.error(f"Subprocess launch error: {launch_exc}")
+                return False
 
-            msg = f"✔ Pack for {target_name.upper()} downloaded and cached successfully!"
-            logger.info(msg)
-            bus.download_finished.emit(True, msg)
+            no_match_found = False
+
+            for line in process.stdout:
+                if bus.cancel_requested:
+                    process.terminate()
+                    raise InterruptedError("USER_CANCELLED")
+
+                sys.__stdout__.write(line)
+
+                if "no matching devices" in line.lower() or "error:" in line.lower():
+                    no_match_found = True
+
+                match = re.search(r'\((\d+)\s*/\s*(\d+)\)', line)
+                if match:
+                    current, total = int(match.group(1)), int(match.group(2))
+                    if total > 0:
+                        pct = int((current / total) * 100)
+                        bus.download_progress.emit(
+                            pct, f"Downloading Index & Packages: {current} / {total}")
+                elif "Downloading packs" in line:
+                    bus.download_progress.emit(-1,
+                                               f"Downloading pack for {t_name.upper()}...")
+                elif "Extracting" in line or "Parsing" in line:
+                    bus.download_progress.emit(100, "")
+
+            process.wait()
+
+            if process.returncode != 0 or no_match_found:
+                return False
             return True
 
-        except InterruptedError:
-            msg = f"Download for {target_name.upper()} was cancelled by user."
-            logger.warning(msg)
-            bus.download_finished.emit(False, msg)
-            return False
+        try:
+            # 1. تلاش اول با نام دقیق (مثلا stm32f103c8)
+            success = run_pack_install(target_name)
 
-        except SystemExit as se:
-            if se.code == 0:
+            # 2. سیستم Fallback هوشمند (حذف 2 کاراکتر آخر برای تبدیل به نام خانواده پکیج)
+            if not success and len(target_name) > 7:
+                # تبدیل stm32f103c8 به stm32f103
+                fallback_name = target_name[:-2]
+                print(
+                    f"[DEBUG-SESSION] Exact match failed. Retrying with family name: {fallback_name.upper()}")
+                success = run_pack_install(fallback_name)
+
+            if success:
                 try:
                     pack_target.PackTargets.clear_cache()
                 except AttributeError:
@@ -1180,10 +1312,16 @@ class SessionManager:
                 bus.download_finished.emit(True, msg)
                 return True
             else:
-                msg = f"Failed to download pack for {target_name.upper()} (Exit code {se.code}). Check internet connection."
+                msg = f"✖ Failed to find or download pack for {target_name.upper()}. Check internet or pyOCD pack index."
                 logger.error(msg)
                 bus.download_finished.emit(False, msg)
                 return False
+
+        except InterruptedError:
+            msg = f"Download for {target_name.upper()} was cancelled by user."
+            logger.warning(msg)
+            bus.download_finished.emit(False, msg)
+            return False
 
         except Exception as e:
             msg = f"Error communicating with ARM index: {str(e)}"
@@ -1191,10 +1329,6 @@ class SessionManager:
             logger.error(msg)
             bus.download_finished.emit(False, msg)
             return False
-
-        finally:
-            sys.argv = old_argv
-            sys.stdout = old_stdout
 
     @staticmethod
     def list_probes() -> List[Any]:
@@ -1273,11 +1407,9 @@ class SessionManager:
         is_auto_mode = current_target.lower(
         ) in ["auto", "none", "", "cortex_m", "stmicroelectronics"]
 
-        # 🌟 جادوی تشخیص هوشمند و راستی‌آزمایی متقاطع (Cross-Validation Shield)
         detected_st = self._stealth_auto_detect()
 
         if not is_auto_mode:
-            # کاربر به صورت دستی قطعه‌ای را مشخص کرده. اگر سیلیکون متصل‌شده یک خانواده ST باشد اما کلمه stm یا gd32 و... در انتخاب کاربر نباشد:
             if detected_st and not any(prefix in current_target.lower() for prefix in ["stm32", "gd32", "apm32", "at32", "cks32", "ch32"]):
                 err_msg = f"Hardware Mismatch! You selected '{current_target.upper()}', but physical board is an ST-compatible MCU ({detected_st.upper()})."
                 print(f"[DEBUG-SESSION PROBE_INFO] ✖ {err_msg}")
@@ -1347,9 +1479,129 @@ class SessionManager:
                 f"[DEBUG-SESSION PROBE_INFO] Success! Target Part: {info['part_number']}, Core: {info['core_type']}")
             session.close()
 
+        # except Exception as e:
+        #     print(f"[DEBUG-SESSION PROBE_INFO EXCEPTION] Attempt failed: {e}")
+        #     info["error"] = str(e)
         except Exception as e:
-            print(f"[DEBUG-SESSION PROBE_INFO EXCEPTION] Attempt failed: {e}")
-            info["error"] = str(e)
+            err_str = str(e)
+
+            print(
+                f"[DEBUG-SESSION PROBE_INFO EXCEPTION] Attempt failed: {err_str}"
+            )
+
+            match = re.search(
+                r"target type (\w+) not recognized",
+                err_str,
+                re.IGNORECASE
+            )
+
+            if match:
+                missing_target = match.group(1)
+
+                print(
+                    f"[DEBUG-SESSION PROBE_INFO] "
+                    f"Target '{missing_target}' is not installed."
+                )
+
+                print(
+                    f"[DEBUG-SESSION PROBE_INFO] "
+                    f"Attempting automatic CMSIS-Pack download..."
+                )
+
+                if self._download_missing_pack(missing_target):
+                    print(
+                        "[DEBUG-SESSION PROBE_INFO] "
+                        "Pack download completed. Retrying target connection..."
+                    )
+
+                    try:
+                        session = ConnectHelper.session_with_chosen_probe(
+                            blocking=False,
+                            options=options,
+                            unique_id=self.unique_id
+                        )
+
+                        if session is None:
+                            raise Exception(
+                                "No B-Link/SWD probe detected on USB."
+                            )
+
+                        print(
+                            "[DEBUG-SESSION PROBE_INFO] "
+                            "Retry: Opening session..."
+                        )
+
+                        session.open()
+
+                        self.session = session
+
+                        info["probe_serial"] = str(
+                            session.probe.unique_id
+                        )
+
+                        target = session.board.target
+
+                        dpidr_val = 0
+
+                        try:
+                            dpidr_val = session.probe.read_dp(0x0)
+                        except Exception:
+                            pass
+
+                        info["dpidr"] = (
+                            f"0x{dpidr_val:08X}"
+                            if dpidr_val
+                            else "Detected"
+                        )
+
+                        try:
+                            code = target.cores[0].core_type
+
+                            try:
+                                from pyocd.coresight.core_ids import CORE_TYPE_NAME
+
+                                info["core_type"] = str(
+                                    CORE_TYPE_NAME.get(code, code)
+                                ).upper()
+
+                            except ImportError:
+                                info["core_type"] = str(code).upper()
+
+                        except Exception:
+                            info["core_type"] = "CORTEX-M"
+
+                        info["part_number"] = (
+                            detected_st.upper()
+                            if detected_st
+                            else missing_target.upper()
+                        )
+
+                        info["success"] = True
+
+                        print(
+                            "[DEBUG-SESSION PROBE_INFO] "
+                            f"Retry successful! Target: {info['part_number']}"
+                        )
+
+                        session.close()
+
+                        return info
+
+                    except Exception as retry_exc:
+                        print(
+                            "[DEBUG-SESSION PROBE_INFO] "
+                            f"Retry after pack download failed: {retry_exc}"
+                        )
+
+                        info["error"] = str(retry_exc)
+
+                else:
+                    print(
+                        "[DEBUG-SESSION PROBE_INFO] "
+                        "Automatic CMSIS-Pack download failed."
+                    )
+
+            info["error"] = err_str
 
         print(f"[DEBUG-SESSION PROBE_INFO] Final result: {info}\n")
         return info
@@ -1371,12 +1623,15 @@ class SessionManager:
         try:
             logger.info(
                 f"Attempting SWD connection -> Target: '{target_name}' | Clock: {freq // 1000} kHz | Mode: '{mode}'...")
+
+            # Explicitly route connection to the targeted probe ID
             self.session = ConnectHelper.session_with_chosen_probe(
-                options=options, unique_id=self.unique_id)
+                options=options, unique_id=self.unique_id
+            )
 
             if self.session is None:
                 print(
-                    "[DEBUG-SESSION _open_session] session_with_chosen_probe returned None.")
+                    "[DEBUG-SESSION _open_session] session_with_chosen_probe returned None. Probe unavailable.")
                 return False
 
             print("[DEBUG-SESSION _open_session] Opening session...")

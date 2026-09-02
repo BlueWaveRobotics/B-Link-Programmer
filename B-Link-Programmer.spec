@@ -3,7 +3,6 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = [
     ('assets', 'assets'),
-    ('profiles', 'profiles'),
     ('version.json', '.')
 ]
 
@@ -12,14 +11,17 @@ binaries = [
     ('libusb-1.0.dll', '.')
 ]
 
-hiddenimports = []
+hiddenimports = [
+    'libusb_package',
+    'usb.core',
+    'usb.backend.libusb1'
+]
 
 tmp_ret = collect_all('pyocd')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 tmp_ret = collect_all('cmsis_pack_manager')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-
 
 a = Analysis(
     ['main.py'],

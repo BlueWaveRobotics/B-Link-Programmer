@@ -1,11 +1,9 @@
-
 # """
 # UI component for Target Diagnostics.
 # Displays hardware probe serial, MCU part number, DPIDR, RDP lock state,
 # and ARM Cortex-M core debug status flags with fixed vertical layout.
 # Supports ST Auto-Detect and Searchable Custom Target selection.
 # """
-# from src.common.resources import QSS_CHEVRON_DOWN, ICON_ARROWS_ROTATE, ICON_CLOUD_ARROW_DOWN, ICON_MAGNIFYING_GLASS, ICON_HOURGLASS
 # from typing import Optional, Dict, Any
 # from PySide6.QtCore import Qt, QThread, Slot, Signal, QTimer, QSize
 # from PySide6.QtGui import QFont, QColor, QIcon
@@ -33,27 +31,9 @@
 # from src.common.pack_downloader import DownloadSignalBus
 # from src.common.resources import QSS_CHEVRON_DOWN, ICON_ARROWS_ROTATE, ICON_CLOUD_ARROW_DOWN, ICON_MAGNIFYING_GLASS, ICON_HOURGLASS, ICON_CHEVRON_DOWN
 # from pyocd.target import TARGET
-# logger = get_logger("TargetDiagnosticWidget")
+# ALL_SUPPORTED_TARGETS = sorted(list(TARGET.keys()))
 
-# # فهرست پرکاربردترین میکروهای غیر ST جهت جستجوی سریع در ComboBox
-# POPULAR_NON_ST_TARGETS = [
-#     "cortex_m (Generic Cortex-M)",
-#     "gd32f103c8 (GigaDevice)",
-#     "gd32f303cg (GigaDevice)",
-#     "gd32f450zk (GigaDevice)",
-#     "nrf52840 (Nordic)",
-#     "nrf52832 (Nordic)",
-#     "nrf5340 (Nordic)",
-#     "lpc1768 (NXP)",
-#     "lpc55s69 (NXP)",
-#     "atsamd21g18a (Microchip/Atmel)",
-#     "atsame54p20 (Microchip/Atmel)",
-#     "rp2040 (Raspberry Pi)",
-#     "ch32f103c8 (WCH)",
-#     "ch32v307 (WCH)",
-#     "efm32g890f128 (Silicon Labs)",
-#     "msp432p401r (Texas Instruments)",
-# ]
+# logger = get_logger("TargetDiagnosticWidget")
 
 
 # class TargetDiagnosticWidget(QWidget):
@@ -63,7 +43,6 @@
 #     """
 
 #     interface_changed = Signal(str)
-#     # سیگنال اعلام تغییر میکروی هدف به سایر بخش‌ها
 #     target_changed = Signal(str)
 
 #     def __init__(self, parent: Optional[QWidget] = None):
@@ -196,7 +175,7 @@
 #         iface_layout.addWidget(self.cmb_interface, stretch=1)
 #         connection_layout.addLayout(iface_layout)
 
-#         # 🌟 انتخاب Vendor / Family Mode (ST Auto یا Manual Search)
+#         # 🌟 انتخاب Vendor / Family Mode
 #         vendor_layout = QHBoxLayout()
 #         lbl_vendor = QLabel("MCU Mode:")
 #         lbl_vendor.setStyleSheet(
@@ -212,7 +191,7 @@
 #         vendor_layout.addWidget(self.cmb_vendor_mode, stretch=1)
 #         connection_layout.addLayout(vendor_layout)
 
-#         # 🌟 ComboBox قابل سرچ برای انتخاب دستی بردهای غیر ST
+#         # 🌟 ComboBox قابل سرچ برای انتخاب دستی با پشتیبانی از دیتابیس کامل
 #         self.target_search_layout = QHBoxLayout()
 #         lbl_target_select = QLabel("Target MCU:")
 #         lbl_target_select.setStyleSheet(
@@ -221,10 +200,10 @@
 #         self.cmb_target_search = QComboBox()
 #         self.cmb_target_search.setEditable(True)
 #         self.cmb_target_search.setInsertPolicy(QComboBox.NoInsert)
-#         self.cmb_target_search.addItems(POPULAR_NON_ST_TARGETS)
+#         self.cmb_target_search.addItems(ALL_SUPPORTED_TARGETS)
 
 #         # فعال‌سازی جستجوی لحظه‌ای (Filter Substring Search)
-#         completer = QCompleter(POPULAR_NON_ST_TARGETS, self.cmb_target_search)
+#         completer = QCompleter(ALL_SUPPORTED_TARGETS, self.cmb_target_search)
 #         completer.setFilterMode(Qt.MatchContains)
 #         completer.setCaseSensitivity(Qt.CaseInsensitive)
 #         self.cmb_target_search.setCompleter(completer)
@@ -348,7 +327,7 @@
 #             return "auto"
 #         else:
 #             raw_text = self.cmb_target_search.currentText().strip()
-#             # جدا کردن نام اصلی از توضیحات داخل پرانتز (مثلا "gd32f103c8 (GigaDevice)" -> "gd32f103c8")
+#             # جداسازی امن و نرمال‌سازی برای جلوگیری از خطای نام قطعه
 #             clean_target = raw_text.split(
 #             )[0].lower() if raw_text else "cortex_m"
 #             return clean_target
@@ -680,8 +659,6 @@ from src.features.target_diagnostic.firmware_update_service import (
 )
 from src.common.pack_downloader import DownloadSignalBus
 from src.common.resources import QSS_CHEVRON_DOWN, ICON_ARROWS_ROTATE, ICON_CLOUD_ARROW_DOWN, ICON_MAGNIFYING_GLASS, ICON_HOURGLASS, ICON_CHEVRON_DOWN
-
-# 🌟 دریافت خودکار لیست تمام قطعات پشتیبانی‌شده از هسته pyOCD
 from pyocd.target import TARGET
 ALL_SUPPORTED_TARGETS = sorted(list(TARGET.keys()))
 
@@ -695,7 +672,6 @@ class TargetDiagnosticWidget(QWidget):
     """
 
     interface_changed = Signal(str)
-    # سیگنال اعلام تغییر میکروی هدف به سایر بخش‌ها
     target_changed = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None):
@@ -815,7 +791,7 @@ class TargetDiagnosticWidget(QWidget):
             "background-color: transparent; color: #EF4444; font-weight: bold; font-size: 13px;")
         connection_layout.addWidget(self.lbl_status)
 
-        # انتخاب Interface
+        # Interface selection dropdown
         iface_layout = QHBoxLayout()
         lbl_iface = QLabel("Interface:")
         lbl_iface.setStyleSheet(
@@ -828,7 +804,7 @@ class TargetDiagnosticWidget(QWidget):
         iface_layout.addWidget(self.cmb_interface, stretch=1)
         connection_layout.addLayout(iface_layout)
 
-        # 🌟 انتخاب Vendor / Family Mode
+        # MCU Vendor / Family Mode selection
         vendor_layout = QHBoxLayout()
         lbl_vendor = QLabel("MCU Mode:")
         lbl_vendor.setStyleSheet(
@@ -844,7 +820,7 @@ class TargetDiagnosticWidget(QWidget):
         vendor_layout.addWidget(self.cmb_vendor_mode, stretch=1)
         connection_layout.addLayout(vendor_layout)
 
-        # 🌟 ComboBox قابل سرچ برای انتخاب دستی با پشتیبانی از دیتابیس کامل
+        # Searchable ComboBox for manual target selection with full database support
         self.target_search_layout = QHBoxLayout()
         lbl_target_select = QLabel("Target MCU:")
         lbl_target_select.setStyleSheet(
@@ -855,7 +831,7 @@ class TargetDiagnosticWidget(QWidget):
         self.cmb_target_search.setInsertPolicy(QComboBox.NoInsert)
         self.cmb_target_search.addItems(ALL_SUPPORTED_TARGETS)
 
-        # فعال‌سازی جستجوی لحظه‌ای (Filter Substring Search)
+        # Enable real-time substring filtering for target search
         completer = QCompleter(ALL_SUPPORTED_TARGETS, self.cmb_target_search)
         completer.setFilterMode(Qt.MatchContains)
         completer.setCaseSensitivity(Qt.CaseInsensitive)
@@ -866,10 +842,10 @@ class TargetDiagnosticWidget(QWidget):
         self.target_search_layout.addWidget(lbl_target_select)
         self.target_search_layout.addWidget(self.cmb_target_search, stretch=1)
 
-        # ساخت فریم نگهدارنده بخش جستجو برای نمایش/مخفی‌سازی آسان
+        # Container widget for dynamic visibility of the search layout
         self.target_search_container = QWidget()
         self.target_search_container.setLayout(self.target_search_layout)
-        # به صورت پیش‌فرض در حالت ST مخفی است
+        # Hidden by default (ST Auto-Detect mode)
         self.target_search_container.setVisible(False)
         connection_layout.addWidget(self.target_search_container)
 
@@ -962,17 +938,21 @@ class TargetDiagnosticWidget(QWidget):
     # -----------------------------------------------------------------
 
     def _on_vendor_mode_changed(self, index: int) -> None:
-        """سویچ بین حالت Auto-Detect برای ST و انتخاب دستی سایر بردها."""
+        """Switch between ST Auto-Detect and Manual selection mode for other vendors."""
         is_manual = (index == 1)
         self.target_search_container.setVisible(is_manual)
 
         target_name = self.get_selected_mcu_target()
+        print(
+            f"[DEBUG-UI] Vendor mode changed. Index: {index}, Target: '{target_name}'")
         logger.info(
             f"MCU Selection Mode changed: index={index}, target='{target_name}'")
         self.target_changed.emit(target_name)
 
     def _on_target_selection_changed(self, text: str) -> None:
         target_name = self.get_selected_mcu_target()
+        print(
+            f"[DEBUG-UI] Target search text changed. New Target: '{target_name}'")
         self.target_changed.emit(target_name)
 
     def get_selected_mcu_target(self) -> str:
@@ -980,17 +960,20 @@ class TargetDiagnosticWidget(QWidget):
             return "auto"
         else:
             raw_text = self.cmb_target_search.currentText().strip()
-            # جداسازی امن و نرمال‌سازی برای جلوگیری از خطای نام قطعه
+            # Safe splitting and normalization to prevent target name errors
             clean_target = raw_text.split(
             )[0].lower() if raw_text else "cortex_m"
             return clean_target
 
     def _on_interface_changed(self, new_interface: str) -> None:
+        print(f"[DEBUG-UI] Global interface changed to: '{new_interface}'")
         logger.info(f"Global interface switched to: {new_interface}")
         self.interface_changed.emit(new_interface)
 
     @Slot(bool, str, str)
     def on_global_probe_status_changed(self, connected: bool, probe_name: str, probe_uid: str) -> None:
+        print(
+            f"[DEBUG-UI] Global probe status received. Connected: {connected}")
         if connected:
             self.btn_refresh.setEnabled(True)
             self.btn_inspect.setEnabled(True)
@@ -1019,6 +1002,7 @@ class TargetDiagnosticWidget(QWidget):
 
     @Slot()
     def _on_hardware_timeout(self) -> None:
+        print("[DEBUG-UI] Watchdog timeout triggered! USB bus might be hung.")
         QApplication.restoreOverrideCursor()
         self.shutdown_threads()
 
@@ -1043,6 +1027,8 @@ class TargetDiagnosticWidget(QWidget):
     def on_refresh_clicked(self) -> None:
         selected_iface = self.cmb_interface.currentText()
         selected_target = self.get_selected_mcu_target()
+        print(
+            f"[DEBUG-UI] btn_refresh clicked. Sending Interface: '{selected_iface}', Target: '{selected_target}' to Worker.")
 
         self.btn_refresh.setEnabled(False)
         self.btn_inspect.setEnabled(False)
@@ -1082,6 +1068,8 @@ class TargetDiagnosticWidget(QWidget):
     def on_inspect_clicked(self) -> None:
         selected_iface = self.cmb_interface.currentText()
         selected_target = self.get_selected_mcu_target()
+        print(
+            f"[DEBUG-UI] btn_inspect clicked. Sending Interface: '{selected_iface}', Target: '{selected_target}' to Worker.")
 
         self.btn_refresh.setEnabled(False)
         self.btn_inspect.setEnabled(False)
@@ -1120,6 +1108,8 @@ class TargetDiagnosticWidget(QWidget):
 
     @Slot(dict)
     def _on_target_info_received(self, info: Dict[str, Any]) -> None:
+        print(
+            f"[DEBUG-UI] target_info_signal received. Success status: {info.get('success')}")
         self._watchdog_timer.stop()
         QApplication.restoreOverrideCursor()
 
@@ -1166,6 +1156,8 @@ class TargetDiagnosticWidget(QWidget):
 
     @Slot(dict)
     def _on_core_status_received(self, status: Dict[str, Any]) -> None:
+        print(
+            f"[DEBUG-UI] core_status_signal received. Success status: {status.get('success')}")
         self._watchdog_timer.stop()
         QApplication.restoreOverrideCursor()
 
