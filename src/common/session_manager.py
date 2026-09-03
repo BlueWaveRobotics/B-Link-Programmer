@@ -1085,6 +1085,7 @@ class SessionManager:
 
     #     from src.common.pack_downloader import DownloadSignalBus
     #     from PySide6.QtCore import QMetaObject, Qt, Q_RETURN_ARG, Q_ARG
+    #     import subprocess
 
     #     bus = DownloadSignalBus.instance()
     #     bus.download_preparing.emit(target_name.upper())
@@ -1110,71 +1111,74 @@ class SessionManager:
     #             return False
 
     #     logger.warning(
-    #         f"Downloading required CMSIS-Pack for {target_name.upper()} from ARM global index... Please wait.")
+    #         f"Downloading required CMSIS-Pack for {target_name.upper()}... Please wait.")
     #     bus.download_started.emit(target_name.upper())
 
-    #     class OutputCatcher:
-    #         def __init__(self, signal_bus):
-    #             self.bus = signal_bus
-    #             self.terminal = sys.__stdout__
-    #             self.last_pct = -1
-    #             self.buffer = ""
+    #     def run_pack_install(t_name: str) -> bool:
+    #         # استفاده از sys.executable برای اجرای ایمن ماژول pyocd با مفسر فعلی پایتون
+    #         cmd = [sys.executable, "-m", "pyocd", "pack", "install", t_name]
+    #         print(f"[DEBUG-SESSION] Running: {' '.join(cmd)}")
 
-    #         def write(self, message):
-    #             if self.bus.cancel_requested:
-    #                 raise InterruptedError("USER_CANCELLED")
-
-    #             self.terminal.write(message)
-    #             self.buffer += message
-
-    #             if '\n' in message or '\r' in message:
-    #                 match = re.search(r'\((\d+)\s*/\s*(\d+)\)', self.buffer)
-    #                 if match:
-    #                     current = int(match.group(1))
-    #                     total = int(match.group(2))
-    #                     if total > 0:
-    #                         pct = int((current / total) * 100)
-    #                         if pct != self.last_pct:
-    #                             self.last_pct = pct
-    #                             self.bus.download_progress.emit(
-    #                                 pct, f"Downloading Index & Packages: {current} / {total}")
-    #                 elif "Downloading packs" in self.buffer:
-    #                     self.bus.download_progress.emit(
-    #                         -1, f"Downloading pack for {target_name.upper()}...")
-    #                 elif "Extracting" in self.buffer or "Parsing" in self.buffer:
-    #                     self.bus.download_progress.emit(100, "")
-    #                 self.buffer = ""
-
-    #         def flush(self):
-    #             self.terminal.flush()
-
-    #     old_stdout = sys.stdout
-    #     old_argv = sys.argv
-    #     sys.argv = ["pyocd", "pack", "install", target_name]
-
-    #     try:
-    #         sys.stdout = OutputCatcher(bus)
-    #         from pyocd.__main__ import main as pyocd_main
-    #         pyocd_main()
+    #         flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
 
     #         try:
-    #             pack_target.PackTargets.clear_cache()
-    #         except AttributeError:
-    #             pass
+    #             process = subprocess.Popen(
+    #                 cmd,
+    #                 stdout=subprocess.PIPE,
+    #                 stderr=subprocess.STDOUT,
+    #                 text=True,
+    #                 creationflags=flags
+    #             )
+    #         except Exception as launch_exc:
+    #             print(
+    #                 f"[DEBUG-SESSION] Failed to launch subprocess: {launch_exc}")
+    #             logger.error(f"Subprocess launch error: {launch_exc}")
+    #             return False
 
-    #         msg = f"✔ Pack for {target_name.upper()} downloaded and cached successfully!"
-    #         logger.info(msg)
-    #         bus.download_finished.emit(True, msg)
+    #         no_match_found = False
+
+    #         for line in process.stdout:
+    #             if bus.cancel_requested:
+    #                 process.terminate()
+    #                 raise InterruptedError("USER_CANCELLED")
+
+    #             sys.__stdout__.write(line)
+
+    #             if "no matching devices" in line.lower() or "error:" in line.lower():
+    #                 no_match_found = True
+
+    #             match = re.search(r'\((\d+)\s*/\s*(\d+)\)', line)
+    #             if match:
+    #                 current, total = int(match.group(1)), int(match.group(2))
+    #                 if total > 0:
+    #                     pct = int((current / total) * 100)
+    #                     bus.download_progress.emit(
+    #                         pct, f"Downloading Index & Packages: {current} / {total}")
+    #             elif "Downloading packs" in line:
+    #                 bus.download_progress.emit(-1,
+    #                                            f"Downloading pack for {t_name.upper()}...")
+    #             elif "Extracting" in line or "Parsing" in line:
+    #                 bus.download_progress.emit(100, "")
+
+    #         process.wait()
+
+    #         if process.returncode != 0 or no_match_found:
+    #             return False
     #         return True
 
-    #     except InterruptedError:
-    #         msg = f"Download for {target_name.upper()} was cancelled by user."
-    #         logger.warning(msg)
-    #         bus.download_finished.emit(False, msg)
-    #         return False
+    #     try:
+    #         # 1. تلاش اول با نام دقیق (مثلا stm32f103c8)
+    #         success = run_pack_install(target_name)
 
-    #     except SystemExit as se:
-    #         if se.code == 0:
+    #         # 2. سیستم Fallback هوشمند (حذف 2 کاراکتر آخر برای تبدیل به نام خانواده پکیج)
+    #         if not success and len(target_name) > 7:
+    #             # تبدیل stm32f103c8 به stm32f103
+    #             fallback_name = target_name[:-2]
+    #             print(
+    #                 f"[DEBUG-SESSION] Exact match failed. Retrying with family name: {fallback_name.upper()}")
+    #             success = run_pack_install(fallback_name)
+
+    #         if success:
     #             try:
     #                 pack_target.PackTargets.clear_cache()
     #             except AttributeError:
@@ -1184,10 +1188,16 @@ class SessionManager:
     #             bus.download_finished.emit(True, msg)
     #             return True
     #         else:
-    #             msg = f"Failed to download pack for {target_name.upper()} (Exit code {se.code}). Check internet connection."
+    #             msg = f"✖ Failed to find or download pack for {target_name.upper()}. Check internet or pyOCD pack index."
     #             logger.error(msg)
     #             bus.download_finished.emit(False, msg)
     #             return False
+
+    #     except InterruptedError:
+    #         msg = f"Download for {target_name.upper()} was cancelled by user."
+    #         logger.warning(msg)
+    #         bus.download_finished.emit(False, msg)
+    #         return False
 
     #     except Exception as e:
     #         msg = f"Error communicating with ARM index: {str(e)}"
@@ -1196,11 +1206,13 @@ class SessionManager:
     #         bus.download_finished.emit(False, msg)
     #         return False
 
-    #     finally:
-    #         sys.argv = old_argv
-    #         sys.stdout = old_stdout
+    def _download_missing_pack(self, target_name: str, timeout_sec: int = 90) -> bool:
 
-    def _download_missing_pack(self, target_name: str) -> bool:
+        import threading
+        import queue
+        import time
+        import subprocess
+
         print(f"\n[DEBUG-SESSION] ===============================================")
         print(f"[DEBUG-SESSION] 🌍 ONLINE CMSIS-PACK DOWNLOADER TRIGGERED")
         print(
@@ -1209,10 +1221,17 @@ class SessionManager:
 
         from src.common.pack_downloader import DownloadSignalBus
         from PySide6.QtCore import QMetaObject, Qt, Q_RETURN_ARG, Q_ARG
-        import subprocess
 
         bus = DownloadSignalBus.instance()
         bus.download_preparing.emit(target_name.upper())
+
+        # اگر دیالوگ هنوز ساخته نشده، حداقل به‌صورت واضح لاگ بده -
+        # به‌جای اینکه بی‌صدا و بدون هیچ UI feedback‌ای دانلود شروع بشه.
+        if not bus.dialog_instance:
+            logger.warning(
+                "Download dialog not yet initialized — proceeding without user "
+                "confirmation UI. Consider ensuring the dialog is created before probing."
+            )
 
         if bus.dialog_instance:
             user_agreed = False
@@ -1239,7 +1258,6 @@ class SessionManager:
         bus.download_started.emit(target_name.upper())
 
         def run_pack_install(t_name: str) -> bool:
-            # استفاده از sys.executable برای اجرای ایمن ماژول pyocd با مفسر فعلی پایتون
             cmd = [sys.executable, "-m", "pyocd", "pack", "install", t_name]
             print(f"[DEBUG-SESSION] Running: {' '.join(cmd)}")
 
@@ -1251,7 +1269,8 @@ class SessionManager:
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
-                    creationflags=flags
+                    creationflags=flags,
+                    bufsize=1,
                 )
             except Exception as launch_exc:
                 print(
@@ -1259,16 +1278,52 @@ class SessionManager:
                 logger.error(f"Subprocess launch error: {launch_exc}")
                 return False
 
-            no_match_found = False
+            # --- خواندن stdout در یک ترد جدا، تا حلقه‌ی اصلی هیچ‌وقت روی
+            # network I/O بلاک نشود و بتواند هم cancel و هم timeout را چک کند.
+            line_queue: "queue.Queue" = queue.Queue()
 
-            for line in process.stdout:
+            def reader():
+                try:
+                    for ln in process.stdout:
+                        line_queue.put(ln)
+                except Exception:
+                    pass
+                finally:
+                    line_queue.put(None)  # علامت پایان خروجی
+
+            reader_thread = threading.Thread(target=reader, daemon=True)
+            reader_thread.start()
+
+            no_match_found = False
+            last_activity = time.monotonic()
+
+            while True:
                 if bus.cancel_requested:
-                    process.terminate()
+                    process.kill()
                     raise InterruptedError("USER_CANCELLED")
 
+                try:
+                    line = line_queue.get(timeout=0.5)
+                except queue.Empty:
+                    if time.monotonic() - last_activity > timeout_sec:
+                        print(
+                            f"[DEBUG-SESSION] Timeout after {timeout_sec}s with no output. Killing process.")
+                        process.kill()
+                        logger.error(
+                            f"Pack install for {t_name.upper()} timed out after {timeout_sec}s "
+                            f"(no response — check internet connection or proxy/VPN)."
+                        )
+                        return False
+                    continue
+
+                if line is None:
+                    break
+
+                last_activity = time.monotonic()
                 sys.__stdout__.write(line)
 
-                if "no matching devices" in line.lower() or "error:" in line.lower():
+                low = line.lower()
+                if "no matching devices" in low:
                     no_match_found = True
 
                 match = re.search(r'\((\d+)\s*/\s*(\d+)\)', line)
@@ -1284,23 +1339,38 @@ class SessionManager:
                 elif "Extracting" in line or "Parsing" in line:
                     bus.download_progress.emit(100, "")
 
-            process.wait()
+            reader_thread.join(timeout=2)
+            process.wait(timeout=5)
 
+            # تشخیص موفقیت عمدتاً بر اساس exit code واقعی، نه substring matching روی متن
             if process.returncode != 0 or no_match_found:
                 return False
             return True
+
+        def guess_family_name(t_name: str) -> Optional[str]:
+            """
+            تلاش برای استخراج نام خانواده‌ی میکروکنترلر با regex به‌جای برش کورکورانه‌ی کاراکتر.
+            پوشش‌دهنده‌ی الگوهای رایج STM32 / GD32 / APM32 / AT32 / CH32 / CKS32.
+            """
+            m = re.match(r'^([a-z]{2}32[a-z]\d{3})', t_name.lower())
+            if m:
+                return m.group(1)
+            # fallback نهایی: همون منطق قدیمی، فقط به‌عنوان آخرین راه‌حل
+            if len(t_name) > 7:
+                return t_name[:-2]
+            return None
 
         try:
             # 1. تلاش اول با نام دقیق (مثلا stm32f103c8)
             success = run_pack_install(target_name)
 
-            # 2. سیستم Fallback هوشمند (حذف 2 کاراکتر آخر برای تبدیل به نام خانواده پکیج)
-            if not success and len(target_name) > 7:
-                # تبدیل stm32f103c8 به stm32f103
-                fallback_name = target_name[:-2]
-                print(
-                    f"[DEBUG-SESSION] Exact match failed. Retrying with family name: {fallback_name.upper()}")
-                success = run_pack_install(fallback_name)
+            # 2. Fallback با نام خانواده (مثلا stm32f103)
+            if not success:
+                fallback_name = guess_family_name(target_name)
+                if fallback_name and fallback_name.lower() != target_name.lower():
+                    print(
+                        f"[DEBUG-SESSION] Exact match failed. Retrying with family name: {fallback_name.upper()}")
+                    success = run_pack_install(fallback_name)
 
             if success:
                 try:
@@ -1312,7 +1382,10 @@ class SessionManager:
                 bus.download_finished.emit(True, msg)
                 return True
             else:
-                msg = f"✖ Failed to find or download pack for {target_name.upper()}. Check internet or pyOCD pack index."
+                msg = (
+                    f"✖ Failed to find or download pack for {target_name.upper()}. "
+                    f"Check your internet connection (a VPN may be required) or the pyOCD pack index."
+                )
                 logger.error(msg)
                 bus.download_finished.emit(False, msg)
                 return False
