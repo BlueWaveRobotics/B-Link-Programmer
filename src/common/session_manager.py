@@ -1089,20 +1089,224 @@ class SessionManager:
 
         return None
 
+    # def _download_missing_pack(self, target_name: str, timeout_sec: int = 180) -> bool:
+    #     """
+    #     True Universal ARM Cortex-M Pack Fetcher:
+    #     Resolves ANY Cortex-M microcontroller (ST, NXP, Microchip, Nordic, TI, Renesas, RP2040, etc.)
+    #     by querying the ARM Open-CMSIS Registry and streaming the official .pack directly to disk.
+    #     """
+    #     import os
+    #     import re
+    #     import json
+    #     import requests
+
+    #     print(f"\n[DEBUG-SESSION] ===============================================")
+    #     print(f"[DEBUG-SESSION] 🌍 UNIVERSAL ARM CMSIS-PACK RESOLVER")
+    #     print(f"[DEBUG-SESSION] Target Hardware: {target_name.upper()}")
+    #     print(f"[DEBUG-SESSION] ===============================================\n")
+
+    #     from src.common.pack_downloader import DownloadSignalBus
+    #     from PySide6.QtCore import QMetaObject, Qt, Q_RETURN_ARG, Q_ARG
+
+    #     bus = DownloadSignalBus.instance()
+    #     bus.download_preparing.emit(target_name.upper())
+
+    #     if bus.dialog_instance:
+    #         user_agreed = False
+    #         try:
+    #             user_agreed = QMetaObject.invokeMethod(
+    #                 bus.dialog_instance,
+    #                 "ask_permission",
+    #                 Qt.ConnectionType.BlockingQueuedConnection,
+    #                 Q_RETURN_ARG(bool),
+    #                 Q_ARG(str, target_name.upper())
+    #             )
+    #         except Exception as e:
+    #             logger.error(f"Dialog invocation error: {e}")
+    #             user_agreed = True
+
+    #         if not user_agreed:
+    #             logger.warning(
+    #                 f"User rejected pack download for {target_name.upper()}.")
+    #             bus.download_finished.emit(False, "Cancelled by user.")
+    #             return False
+
+    #     bus.download_started.emit(target_name.upper())
+
+    #     local_packs_dir = os.path.join(os.path.expanduser("~"), ".blink_packs")
+    #     os.makedirs(local_packs_dir, exist_ok=True)
+
+    #     clean_target = target_name.strip().lower()
+    #     download_url = None
+    #     pack_filename = None
+
+    #     headers = {
+    #         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)',
+    #         'Accept': '*/*'
+    #     }
+
+    #     # -------------------------------------------------------------
+    #     # مرحله ۱: استعلام داینامیک ایندکس رسمی Open-CMSIS بدون تحریم
+    #     # -------------------------------------------------------------
+    #     cache_index_path = os.path.join(
+    #         local_packs_dir, "cmsis_registry_cache.json")
+    #     packs_data = None
+
+    #     # بارگذاری از کش محلی در صورت معتبر بودن (کمتر از ۷ روز گذشته باشد)
+    #     if os.path.exists(cache_index_path):
+    #         try:
+    #             with open(cache_index_path, "r", encoding="utf-8") as f:
+    #                 packs_data = json.load(f)
+    #         except Exception:
+    #             packs_data = None
+
+    #     # اگر در کش نبود، دانلود مخزن رسمی بدون فیلتر ARM CMSIS
+    #     if not packs_data:
+    #         logger.info(
+    #             "Fetching global CMSIS-Pack metadata from ARM Open-Registry...")
+    #         endpoints = [
+    #             "https://raw.githubusercontent.com/Open-CMSIS-Pack/registry/main/packs.json",
+    #             "https://cdn.jsdelivr.net/gh/Open-CMSIS-Pack/registry@main/packs.json"  # آینه سریع CDN
+    #         ]
+    #         for ep in endpoints:
+    #             try:
+    #                 resp = requests.get(ep, headers=headers, timeout=10)
+    #                 if resp.status_code == 200:
+    #                     packs_data = resp.json().get("packs", [])
+    #                     with open(cache_index_path, "w", encoding="utf-8") as f:
+    #                         json.dump(packs_data, f)
+    #                     break
+    #             except Exception as e:
+    #                 logger.warning(f"Registry endpoint {ep} unavailable: {e}")
+
+    #     # -------------------------------------------------------------
+    #     # مرحله ۲: جستجوی عمیق تطبیقی نام میکرو در بین پکیج‌های ثبت شده
+    #     # -------------------------------------------------------------
+    #     if packs_data:
+    #         # استخراج الگوهای قطعه: نام کامل، خانواده، یا پیشوند پلتفرم
+    #         # مثلاً stm32f103c8 -> خانواده stm32f1 یا lpc1768 -> lpc1700
+    #         for pack in packs_data:
+    #             p_name = pack.get("name", "").lower()
+    #             p_vendor = pack.get("vendor", "")
+    #             base_url = pack.get("url", "").rstrip("/")
+    #             version = pack.get("version", "")
+
+    #             # ساخت کلید عمومی جستجو
+    #             # قطعات STM32 / GD32 / APM32
+    #             m_st = re.match(r'^([a-z]{2,3}32[a-z][0-9])', clean_target)
+    #             target_root = m_st.group(1) if m_st else clean_target[:6]
+
+    #             # انطباق نام دیوایس با نام رسمی پکیج سازنده
+    #             matched = False
+    #             if target_root in p_name:
+    #                 matched = True
+    #             elif clean_target.startswith("lpc") and clean_target[:5] in p_name:
+    #                 matched = True
+    #             elif clean_target.startswith("nrf") and clean_target[:5] in p_name:
+    #                 matched = True
+    #             elif clean_target.startswith("sam") and clean_target[:5] in p_name:
+    #                 matched = True
+    #             elif "rp2040" in clean_target and "rp2040" in p_name:
+    #                 matched = True
+
+    #             if matched and version:
+    #                 pack_filename = f"{p_vendor}.{pack.get('name')}.{version}.pack"
+    #                 download_url = f"{base_url}/{pack_filename}"
+    #                 logger.info(
+    #                     f"Target matched to dynamic package: {pack_filename}")
+    #                 break
+
+    #     # -------------------------------------------------------------
+    #     # مرحله ۳: فال‌بک رسمی CDN مایکروسافت/آژور برای شرایط عدم دسترسی به گیت‌هاب
+    #     # -------------------------------------------------------------
+    #     if not download_url:
+    #         logger.warning(
+    #             "Dynamic lookup missed, applying deterministic vendor rules...")
+    #         vendor_rules = [
+    #             (r'^stm32f1', 'Keil', 'STM32F1xx_DFP', '2.4.1'),
+    #             (r'^stm32f4', 'Keil', 'STM32F4xx_DFP', '2.17.1'),
+    #             (r'^stm32g0', 'Keil', 'STM32G0xx_DFP', '1.5.0'),
+    #             (r'^stm32h7', 'Keil', 'STM32H7xx_DFP', '2.8.0'),
+    #             (r'^stm32l4', 'Keil', 'STM32L4xx_DFP', '2.6.1'),
+    #             (r'^lpc17',   'Keil', 'LPC1700_DFP',   '2.7.1'),
+    #             (r'^lpc11',   'Keil', 'LPC1100_DFP',   '1.4.0'),
+    #             (r'^nrf52',   'NordicSemiconductor',
+    #              'nRF_DeviceFamilyPack', '8.44.1'),
+    #             (r'^samd21',  'Microchip', 'SAMD21_DFP', '3.6.144'),
+    #             (r'^rp2040',  'RaspberryPi', 'RP2040_DFP', '1.0.0'),
+    #         ]
+    #         for regex_pat, v_name, p_core, ver in vendor_rules:
+    #             if re.search(regex_pat, clean_target):
+    #                 pack_filename = f"{v_name}.{p_core}.{ver}.pack"
+    #                 download_url = f"https://keilpack.azureedge.net/pack/{pack_filename}"
+    #                 break
+
+    #     if not download_url or not pack_filename:
+    #         err_msg = f"Could not determine online CMSIS-Pack for target '{target_name.upper()}'."
+    #         logger.error(err_msg)
+    #         bus.download_finished.emit(False, err_msg)
+    #         return False
+
+    #     dest_path = os.path.join(local_packs_dir, pack_filename)
+    #     logger.info(f"Resolved -> {pack_filename}")
+    #     logger.info(f"Downloading from: {download_url}")
+
+    #     # -------------------------------------------------------------
+    #     # مرحله ۴: استریم باینری، مدیریت ریدایرکت‌های Azure و گزارش درصد پیشرفت
+    #     # -------------------------------------------------------------
+    #     try:
+    #         with requests.get(download_url, headers=headers, stream=True, allow_redirects=True, timeout=timeout_sec) as r:
+    #             r.raise_for_status()
+    #             total_size = int(r.headers.get('content-length', 0))
+    #             downloaded = 0
+    #             chunk_size = 1024 * 64
+
+    #             with open(dest_path, 'wb') as f:
+    #                 for chunk in r.iter_content(chunk_size=chunk_size):
+    #                     if bus.cancel_requested:
+    #                         raise InterruptedError("USER_CANCELLED")
+    #                     if chunk:
+    #                         f.write(chunk)
+    #                         downloaded += len(chunk)
+    #                         if total_size > 0:
+    #                             pct = int((downloaded / total_size) * 100)
+    #                             bus.download_progress.emit(
+    #                                 min(pct, 100), f"Downloading {pack_filename}...")
+
+    #         # اضافه کردن فایل به لیست کش فعال همین سشن
+    #         if dest_path not in self.available_packs:
+    #             self.available_packs.append(dest_path)
+
+    #         msg = f"✔ Pack for {target_name.upper()} successfully retrieved: {pack_filename}"
+    #         logger.info(msg)
+    #         bus.download_finished.emit(True, msg)
+    #         return True
+
+    #     except InterruptedError:
+    #         if os.path.exists(dest_path):
+    #             os.remove(dest_path)
+    #         bus.download_finished.emit(False, "Cancelled by user.")
+    #         return False
+    #     except Exception as e:
+    #         if os.path.exists(dest_path):
+    #             os.remove(dest_path)
+    #         logger.error(f"Download stream error: {e}")
+    #         bus.download_finished.emit(False, f"Download failed: {e}")
+    #         return False
+
     def _download_missing_pack(self, target_name: str, timeout_sec: int = 180) -> bool:
         """
         True Universal ARM Cortex-M Pack Fetcher:
-        Resolves ANY Cortex-M microcontroller (ST, NXP, Microchip, Nordic, TI, Renesas, RP2040, etc.)
-        by querying the ARM Open-CMSIS Registry and streaming the official .pack directly to disk.
+        Prioritizes Offline Assets before Online Downloads (User Cache -> Bundled Asset -> Live Azure/Keil).
         """
         import os
         import re
-        import json
         import requests
+        from src.common.paths import get_path
 
         print(f"\n[DEBUG-SESSION] ===============================================")
         print(f"[DEBUG-SESSION] 🌍 UNIVERSAL ARM CMSIS-PACK RESOLVER")
-        print(f"[DEBUG-SESSION] Target Hardware: {target_name.upper()}")
+        print(f"[DEBUG-SESSION] Resolving Target: {target_name.upper()}")
         print(f"[DEBUG-SESSION] ===============================================\n")
 
         from src.common.pack_downloader import DownloadSignalBus
@@ -1127,7 +1331,7 @@ class SessionManager:
 
             if not user_agreed:
                 logger.warning(
-                    f"User rejected pack download for {target_name.upper()}.")
+                    f"User cancelled download for {target_name.upper()}.")
                 bus.download_finished.emit(False, "Cancelled by user.")
                 return False
 
@@ -1141,104 +1345,130 @@ class SessionManager:
         pack_filename = None
 
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': '*/*'
         }
 
         # -------------------------------------------------------------
-        # مرحله ۱: استعلام داینامیک ایندکس رسمی Open-CMSIS بدون تحریم
+        # مرحله ۱: تأمین قطعی محتوای ایندکس (Cache -> Bundled Asset -> Online)
         # -------------------------------------------------------------
-        cache_index_path = os.path.join(
-            local_packs_dir, "cmsis_registry_cache.json")
-        packs_data = None
+        cache_index_path = os.path.join(local_packs_dir, "master_index.idx")
+        index_content = ""
 
-        # بارگذاری از کش محلی در صورت معتبر بودن (کمتر از ۷ روز گذشته باشد)
+        # ۱.۱: اولویت اول -> بررسی کش سیستم کاربر
         if os.path.exists(cache_index_path):
             try:
-                with open(cache_index_path, "r", encoding="utf-8") as f:
-                    packs_data = json.load(f)
+                with open(cache_index_path, "r", encoding="utf-8", errors="ignore") as f:
+                    index_content = f.read()
+                if len(index_content) > 1000:
+                    logger.info("Master index loaded from local user cache.")
             except Exception:
-                packs_data = None
+                index_content = ""
 
-        # اگر در کش نبود، دانلود مخزن رسمی بدون فیلتر ARM CMSIS
-        if not packs_data:
-            logger.info(
-                "Fetching global CMSIS-Pack metadata from ARM Open-Registry...")
-            endpoints = [
-                "https://raw.githubusercontent.com/Open-CMSIS-Pack/registry/main/packs.json",
-                "https://cdn.jsdelivr.net/gh/Open-CMSIS-Pack/registry@main/packs.json"  # آینه سریع CDN
-            ]
-            for ep in endpoints:
+        # ۱.۲: اولویت دوم -> لایه آفلاین داخلی پروژه (assets/master_index.idx)
+        if not index_content or len(index_content) <= 1000:
+            bundled_idx = get_path("assets/master_index.idx")
+            if os.path.exists(bundled_idx):
                 try:
-                    resp = requests.get(ep, headers=headers, timeout=10)
-                    if resp.status_code == 200:
-                        packs_data = resp.json().get("packs", [])
-                        with open(cache_index_path, "w", encoding="utf-8") as f:
-                            json.dump(packs_data, f)
+                    with open(bundled_idx, "r", encoding="utf-8", errors="ignore") as f:
+                        index_content = f.read()
+                    if len(index_content) > 1000:
+                        logger.info(
+                            "Loaded master index from bundled assets/master_index.idx.")
+                        # انتقال به کش کاربر تا دفعات بعد مستقیم لود شود
+                        try:
+                            with open(cache_index_path, "w", encoding="utf-8", errors="ignore") as out_f:
+                                out_f.write(index_content)
+                        except Exception:
+                            pass
+                except Exception as ex:
+                    logger.error(f"Failed to read bundled index: {ex}")
+
+        # ۱.۳: اولویت سوم -> دانلود آنلاین فقط در صورتی که فایل آفلاین پیدا نشود
+        if not index_content or len(index_content) <= 1000:
+            logger.info(
+                "No offline index available. Fetching global index from Azure/Keil...")
+            index_mirrors = [
+                "https://sadevicepacksprodus.blob.core.windows.net/idxfile/index.idx",
+                "https://www.keil.com/pack/index.idx"
+            ]
+            for mirror in index_mirrors:
+                try:
+                    r = requests.get(mirror, headers=headers, timeout=10)
+                    if r.status_code == 200 and len(r.text) > 1000:
+                        index_content = r.text
+                        try:
+                            with open(cache_index_path, "w", encoding="utf-8", errors="ignore") as f:
+                                f.write(index_content)
+                        except Exception:
+                            pass
+                        logger.info(
+                            f"Master index retrieved online and cached from: {mirror}")
                         break
-                except Exception as e:
-                    logger.warning(f"Registry endpoint {ep} unavailable: {e}")
+                except Exception as ex:
+                    logger.warning(f"Index mirror {mirror} unavailable: {ex}")
 
         # -------------------------------------------------------------
-        # مرحله ۲: جستجوی عمیق تطبیقی نام میکرو در بین پکیج‌های ثبت شده
+        # مرحله ۲: جستجوی داینامیک در شاخص جهانی
         # -------------------------------------------------------------
-        if packs_data:
-            # استخراج الگوهای قطعه: نام کامل، خانواده، یا پیشوند پلتفرم
-            # مثلاً stm32f103c8 -> خانواده stm32f1 یا lpc1768 -> lpc1700
-            for pack in packs_data:
-                p_name = pack.get("name", "").lower()
-                p_vendor = pack.get("vendor", "")
-                base_url = pack.get("url", "").rstrip("/")
-                version = pack.get("version", "")
+        if index_content:
+            logger.info(
+                f"Scanning index for target: {clean_target.upper()}...")
+            m_family = re.match(
+                r'^([a-z]{2,4}[0-9]{1,3}[a-z]?[0-9]?)', clean_target)
+            search_key = m_family.group(1) if m_family else clean_target[:6]
 
-                # ساخت کلید عمومی جستجو
-                # قطعات STM32 / GD32 / APM32
-                m_st = re.match(r'^([a-z]{2,3}32[a-z][0-9])', clean_target)
-                target_root = m_st.group(1) if m_st else clean_target[:6]
+            for line in index_content.splitlines():
+                line_lower = line.lower()
+                if search_key in line_lower and "dfp" in line_lower:
+                    url_m = re.search(r'url="([^"]+)"', line, re.IGNORECASE)
+                    name_m = re.search(r'name="([^"]+)"', line, re.IGNORECASE)
+                    ver_m = re.search(
+                        r'version="([^"]+)"', line, re.IGNORECASE)
 
-                # انطباق نام دیوایس با نام رسمی پکیج سازنده
-                matched = False
-                if target_root in p_name:
-                    matched = True
-                elif clean_target.startswith("lpc") and clean_target[:5] in p_name:
-                    matched = True
-                elif clean_target.startswith("nrf") and clean_target[:5] in p_name:
-                    matched = True
-                elif clean_target.startswith("sam") and clean_target[:5] in p_name:
-                    matched = True
-                elif "rp2040" in clean_target and "rp2040" in p_name:
-                    matched = True
+                    if url_m and name_m and ver_m:
+                        base_url = url_m.group(1).rstrip('/')
+                        pdsc_name = name_m.group(1)
+                        version = ver_m.group(1)
 
-                if matched and version:
-                    pack_filename = f"{p_vendor}.{pack.get('name')}.{version}.pack"
-                    download_url = f"{base_url}/{pack_filename}"
-                    logger.info(
-                        f"Target matched to dynamic package: {pack_filename}")
-                    break
+                        raw_name = pdsc_name[:-
+                                             5] if pdsc_name.endswith(".pdsc") else pdsc_name
+                        pack_filename = f"{raw_name}.{version}.pack"
+                        download_url = f"{base_url}/{pack_filename}"
+                        logger.info(
+                            f"✔ Target dynamically resolved via Index: {pack_filename}")
+                        break
 
         # -------------------------------------------------------------
-        # مرحله ۳: فال‌بک رسمی CDN مایکروسافت/آژور برای شرایط عدم دسترسی به گیت‌هاب
+        # مرحله ۳: نگاشت قطعی خانواده‌های اصلی برای خطاهای استثنایی
         # -------------------------------------------------------------
         if not download_url:
             logger.warning(
-                "Dynamic lookup missed, applying deterministic vendor rules...")
-            vendor_rules = [
-                (r'^stm32f1', 'Keil', 'STM32F1xx_DFP', '2.4.1'),
-                (r'^stm32f4', 'Keil', 'STM32F4xx_DFP', '2.17.1'),
-                (r'^stm32g0', 'Keil', 'STM32G0xx_DFP', '1.5.0'),
-                (r'^stm32h7', 'Keil', 'STM32H7xx_DFP', '2.8.0'),
-                (r'^stm32l4', 'Keil', 'STM32L4xx_DFP', '2.6.1'),
-                (r'^lpc17',   'Keil', 'LPC1700_DFP',   '2.7.1'),
-                (r'^lpc11',   'Keil', 'LPC1100_DFP',   '1.4.0'),
-                (r'^nrf52',   'NordicSemiconductor',
-                 'nRF_DeviceFamilyPack', '8.44.1'),
-                (r'^samd21',  'Microchip', 'SAMD21_DFP', '3.6.144'),
-                (r'^rp2040',  'RaspberryPi', 'RP2040_DFP', '1.0.0'),
+                "Stage 2 index lookup missed; falling back to static CDN rules...")
+            offline_patterns = [
+                (r'^stm32f1', 'Keil.STM32F1xx_DFP.2.4.1.pack',
+                 'https://keilpack.azureedge.net/pack/Keil.STM32F1xx_DFP.2.4.1.pack'),
+                (r'^stm32f4', 'Keil.STM32F4xx_DFP.2.17.1.pack',
+                 'https://keilpack.azureedge.net/pack/Keil.STM32F4xx_DFP.2.17.1.pack'),
+                (r'^stm32g0', 'Keil.STM32G0xx_DFP.1.5.0.pack',
+                 'https://keilpack.azureedge.net/pack/Keil.STM32G0xx_DFP.1.5.0.pack'),
+                (r'^stm32h7', 'Keil.STM32H7xx_DFP.2.8.0.pack',
+                 'https://keilpack.azureedge.net/pack/Keil.STM32H7xx_DFP.2.8.0.pack'),
+                (r'^stm32l4', 'Keil.STM32L4xx_DFP.2.6.1.pack',
+                 'https://keilpack.azureedge.net/pack/Keil.STM32L4xx_DFP.2.6.1.pack'),
+                (r'^lpc17',   'Keil.LPC1700_DFP.2.7.1.pack',
+                 'https://keilpack.azureedge.net/pack/Keil.LPC1700_DFP.2.7.1.pack'),
+                (r'^nrf52',   'NordicSemiconductor.nRF_DeviceFamilyPack.8.44.1.pack',
+                 'https://keilpack.azureedge.net/pack/NordicSemiconductor.nRF_DeviceFamilyPack.8.44.1.pack'),
+                (r'^samd21',  'Microchip.SAMD21_DFP.3.6.144.pack',
+                 'https://keilpack.azureedge.net/pack/Microchip.SAMD21_DFP.3.6.144.pack'),
+                (r'^rp2040',  'RaspberryPi.RP2040_DFP.1.0.0.pack',
+                 'https://keilpack.azureedge.net/pack/RaspberryPi.RP2040_DFP.1.0.0.pack'),
             ]
-            for regex_pat, v_name, p_core, ver in vendor_rules:
-                if re.search(regex_pat, clean_target):
-                    pack_filename = f"{v_name}.{p_core}.{ver}.pack"
-                    download_url = f"https://keilpack.azureedge.net/pack/{pack_filename}"
+            for pat, fname, u in offline_patterns:
+                if re.search(pat, clean_target):
+                    pack_filename = fname
+                    download_url = u
                     break
 
         if not download_url or not pack_filename:
@@ -1248,11 +1478,10 @@ class SessionManager:
             return False
 
         dest_path = os.path.join(local_packs_dir, pack_filename)
-        logger.info(f"Resolved -> {pack_filename}")
-        logger.info(f"Downloading from: {download_url}")
+        logger.info(f"Downloading pack from: {download_url}")
 
         # -------------------------------------------------------------
-        # مرحله ۴: استریم باینری، مدیریت ریدایرکت‌های Azure و گزارش درصد پیشرفت
+        # مرحله ۴: استریم باینری و تزریق به نشست فعال
         # -------------------------------------------------------------
         try:
             with requests.get(download_url, headers=headers, stream=True, allow_redirects=True, timeout=timeout_sec) as r:
@@ -1273,7 +1502,6 @@ class SessionManager:
                                 bus.download_progress.emit(
                                     min(pct, 100), f"Downloading {pack_filename}...")
 
-            # اضافه کردن فایل به لیست کش فعال همین سشن
             if dest_path not in self.available_packs:
                 self.available_packs.append(dest_path)
 
