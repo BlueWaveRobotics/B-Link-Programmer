@@ -1294,20 +1294,23 @@ class SessionManager:
     #         bus.download_finished.emit(False, f"Download failed: {e}")
     #         return False
 
-    def _download_missing_pack(self, target_name: str, timeout_sec: int = 180) -> bool:
+    def _download_missing_pack(self, target_name: str, timeout_sec: int = 45) -> bool:
         """
-        True Universal ARM Cortex-M Pack Fetcher:
-        Prioritizes Offline Assets before Online Downloads (User Cache -> Bundled Asset -> Live Azure/Keil).
+        True Universal ARM Cortex-M Pack Fetcher with High-Detail Diagnostic Logging.
+        Prioritizes Offline Assets (User Cache -> Bundled Asset -> Online Mirrors).
+        Automatically reroutes blocked 'www.keil.com' links to official Azure Edge CDN.
         """
         import os
         import re
         import requests
         from src.common.paths import get_path
 
-        print(f"\n[DEBUG-SESSION] ===============================================")
-        print(f"[DEBUG-SESSION] 🌍 UNIVERSAL ARM CMSIS-PACK RESOLVER")
-        print(f"[DEBUG-SESSION] Resolving Target: {target_name.upper()}")
-        print(f"[DEBUG-SESSION] ===============================================\n")
+        print(f"\n=======================================================")
+        print(f"[DEBUG-RESOLVER] 🌍 CMSIS-PACK AUTO-RESOLVER TRIGGERED")
+        print(f"[DEBUG-RESOLVER] Target Device Architecture : ARM Cortex-M")
+        print(
+            f"[DEBUG-RESOLVER] Target Chip Identification  : {target_name.upper()}")
+        print(f"=======================================================\n")
 
         from src.common.pack_downloader import DownloadSignalBus
         from PySide6.QtCore import QMetaObject, Qt, Q_RETURN_ARG, Q_ARG
@@ -1318,6 +1321,8 @@ class SessionManager:
         if bus.dialog_instance:
             user_agreed = False
             try:
+                print(
+                    f"[DEBUG-DIALOG] Requesting UI permission for {target_name.upper()}...")
                 user_agreed = QMetaObject.invokeMethod(
                     bus.dialog_instance,
                     "ask_permission",
@@ -1325,13 +1330,14 @@ class SessionManager:
                     Q_RETURN_ARG(bool),
                     Q_ARG(str, target_name.upper())
                 )
+                print(f"[DEBUG-DIALOG] User permission result: {user_agreed}")
             except Exception as e:
-                logger.error(f"Dialog invocation error: {e}")
+                logger.error(f"[DEBUG-DIALOG EXCEPTION] Invocation error: {e}")
                 user_agreed = True
 
             if not user_agreed:
                 logger.warning(
-                    f"User cancelled download for {target_name.upper()}.")
+                    f"[DEBUG-DIALOG] Aborted: User cancelled download for {target_name.upper()}.")
                 bus.download_finished.emit(False, "Cancelled by user.")
                 return False
 
@@ -1339,6 +1345,7 @@ class SessionManager:
 
         local_packs_dir = os.path.join(os.path.expanduser("~"), ".blink_packs")
         os.makedirs(local_packs_dir, exist_ok=True)
+        print(f"[DEBUG-STORAGE] Target local directory: {local_packs_dir}")
 
         clean_target = target_name.strip().lower()
         download_url = None
@@ -1350,73 +1357,84 @@ class SessionManager:
         }
 
         # -------------------------------------------------------------
-        # مرحله ۱: تأمین قطعی محتوای ایندکس (Cache -> Bundled Asset -> Online)
+        # STAGE 1: ACQUIRE MASTER INDEX (Cache -> Asset -> Live Mirror)
         # -------------------------------------------------------------
         cache_index_path = os.path.join(local_packs_dir, "master_index.idx")
         index_content = ""
 
-        # ۱.۱: اولویت اول -> بررسی کش سیستم کاربر
+        # 1.1: Local user cache
         if os.path.exists(cache_index_path):
             try:
                 with open(cache_index_path, "r", encoding="utf-8", errors="ignore") as f:
                     index_content = f.read()
                 if len(index_content) > 1000:
-                    logger.info("Master index loaded from local user cache.")
-            except Exception:
+                    print(
+                        f"[DEBUG-STAGE-1.1] SUCCESS: Loaded master index from user cache ({len(index_content)} bytes).")
+            except Exception as ex:
+                print(
+                    f"[DEBUG-STAGE-1.1] WARNING: Failed reading user cache: {ex}")
                 index_content = ""
 
-        # ۱.۲: اولویت دوم -> لایه آفلاین داخلی پروژه (assets/master_index.idx)
+        # 1.2: Bundled local asset (assets/master_index.idx)
         if not index_content or len(index_content) <= 1000:
             bundled_idx = get_path("assets/master_index.idx")
+            print(
+                f"[DEBUG-STAGE-1.2] Checking bundled asset path: {bundled_idx}")
             if os.path.exists(bundled_idx):
                 try:
                     with open(bundled_idx, "r", encoding="utf-8", errors="ignore") as f:
                         index_content = f.read()
                     if len(index_content) > 1000:
-                        logger.info(
-                            "Loaded master index from bundled assets/master_index.idx.")
-                        # انتقال به کش کاربر تا دفعات بعد مستقیم لود شود
+                        print(
+                            f"[DEBUG-STAGE-1.2] SUCCESS: Loaded bundled asset ({len(index_content)} bytes).")
                         try:
                             with open(cache_index_path, "w", encoding="utf-8", errors="ignore") as out_f:
                                 out_f.write(index_content)
+                            print(
+                                f"[DEBUG-STAGE-1.2] Synced bundled asset into user cache path.")
                         except Exception:
                             pass
                 except Exception as ex:
-                    logger.error(f"Failed to read bundled index: {ex}")
+                    print(
+                        f"[DEBUG-STAGE-1.2] ERROR reading bundled asset: {ex}")
 
-        # ۱.۳: اولویت سوم -> دانلود آنلاین فقط در صورتی که فایل آفلاین پیدا نشود
+        # 1.3: Remote online mirrors
         if not index_content or len(index_content) <= 1000:
-            logger.info(
-                "No offline index available. Fetching global index from Azure/Keil...")
+            print(
+                "[DEBUG-STAGE-1.3] No offline index found. Initiating online fetch...")
             index_mirrors = [
                 "https://sadevicepacksprodus.blob.core.windows.net/idxfile/index.idx",
-                "https://www.keil.com/pack/index.idx"
+                "https://keilpack.azureedge.net/pack/index.idx"
             ]
             for mirror in index_mirrors:
+                print(f"[DEBUG-STAGE-1.3] GET: {mirror}")
                 try:
-                    r = requests.get(mirror, headers=headers, timeout=10)
+                    r = requests.get(mirror, headers=headers, timeout=12)
+                    print(
+                        f"[DEBUG-STAGE-1.3] Response Status: {r.status_code}")
                     if r.status_code == 200 and len(r.text) > 1000:
                         index_content = r.text
                         try:
                             with open(cache_index_path, "w", encoding="utf-8", errors="ignore") as f:
                                 f.write(index_content)
+                            print(
+                                f"[DEBUG-STAGE-1.3] Index cached successfully.")
                         except Exception:
                             pass
-                        logger.info(
-                            f"Master index retrieved online and cached from: {mirror}")
                         break
                 except Exception as ex:
-                    logger.warning(f"Index mirror {mirror} unavailable: {ex}")
+                    print(
+                        f"[DEBUG-STAGE-1.3] FAILED for mirror {mirror} -> {ex}")
 
         # -------------------------------------------------------------
-        # مرحله ۲: جستجوی داینامیک در شاخص جهانی
+        # STAGE 2: DYNAMIC XML REGISTRY PARSER & URL REWRITER
         # -------------------------------------------------------------
         if index_content:
-            logger.info(
-                f"Scanning index for target: {clean_target.upper()}...")
             m_family = re.match(
                 r'^([a-z]{2,4}[0-9]{1,3}[a-z]?[0-9]?)', clean_target)
             search_key = m_family.group(1) if m_family else clean_target[:6]
+            print(
+                f"[DEBUG-STAGE-2] Scanning {len(index_content.splitlines())} index records using key: '{search_key}'")
 
             for line in index_content.splitlines():
                 line_lower = line.lower()
@@ -1427,24 +1445,34 @@ class SessionManager:
                         r'version="([^"]+)"', line, re.IGNORECASE)
 
                     if url_m and name_m and ver_m:
-                        base_url = url_m.group(1).rstrip('/')
+                        raw_base_url = url_m.group(1).rstrip('/')
                         pdsc_name = name_m.group(1)
                         version = ver_m.group(1)
 
                         raw_name = pdsc_name[:-
                                              5] if pdsc_name.endswith(".pdsc") else pdsc_name
                         pack_filename = f"{raw_name}.{version}.pack"
-                        download_url = f"{base_url}/{pack_filename}"
-                        logger.info(
-                            f"✔ Target dynamically resolved via Index: {pack_filename}")
+                        download_url = f"{raw_base_url}/{pack_filename}"
+                        print(
+                            f"[DEBUG-STAGE-2] Match identified in index line: {line.strip()}")
+                        print(
+                            f"[DEBUG-STAGE-2] Raw resolved URL: {download_url}")
                         break
 
+            # Anti-Block URL Rewriter (Redirect www.keil.com to Azure CDN)
+            if download_url and "keil.com" in download_url.lower():
+                old_url = download_url
+                download_url = f"https://keilpack.azureedge.net/pack/{pack_filename}"
+                print(f"[DEBUG-STAGE-2] URL REWRITE: Rerouted blocked source:")
+                print(f"  Old -> {old_url}")
+                print(f"  New -> {download_url}")
+
         # -------------------------------------------------------------
-        # مرحله ۳: نگاشت قطعی خانواده‌های اصلی برای خطاهای استثنایی
+        # STAGE 3: DETERMINISTIC FALLBACK CDN RULES
         # -------------------------------------------------------------
         if not download_url:
-            logger.warning(
-                "Stage 2 index lookup missed; falling back to static CDN rules...")
+            print(
+                f"[DEBUG-STAGE-3] Target '{clean_target}' not resolved via Stage 2. Trying fallback rules...")
             offline_patterns = [
                 (r'^stm32f1', 'Keil.STM32F1xx_DFP.2.4.1.pack',
                  'https://keilpack.azureedge.net/pack/Keil.STM32F1xx_DFP.2.4.1.pack'),
@@ -1469,30 +1497,53 @@ class SessionManager:
                 if re.search(pat, clean_target):
                     pack_filename = fname
                     download_url = u
+                    print(
+                        f"[DEBUG-STAGE-3] Fallback pattern matched: {pat} -> {pack_filename}")
                     break
 
         if not download_url or not pack_filename:
-            err_msg = f"Could not determine online CMSIS-Pack for target '{target_name.upper()}'."
-            logger.error(err_msg)
+            err_msg = f"Could not determine online CMSIS-Pack repository for: {target_name.upper()}"
+            logger.error(f"[DEBUG-RESOLVER ERROR] {err_msg}")
             bus.download_finished.emit(False, err_msg)
             return False
 
         dest_path = os.path.join(local_packs_dir, pack_filename)
-        logger.info(f"Downloading pack from: {download_url}")
+        print(f"\n[DEBUG-STREAM] Target Output File : {dest_path}")
+        print(f"[DEBUG-STREAM] Streaming Source   : {download_url}")
+        print(f"[DEBUG-STREAM] Connection Timeout : {timeout_sec}s\n")
 
         # -------------------------------------------------------------
-        # مرحله ۴: استریم باینری و تزریق به نشست فعال
+        # STAGE 4: STREAMING DOWNLOAD WITH AUTOMATIC RETRIES
         # -------------------------------------------------------------
+        import urllib3
+        from requests.adapters import HTTPAdapter
+        from urllib3.util.retry import Retry
+
+        session_http = requests.Session()
+        retries = Retry(
+            total=3,
+            backoff_factor=1,
+            status_forcelist=[500, 502, 503, 504],
+            raise_on_status=False
+        )
+        adapter = HTTPAdapter(max_retries=retries)
+        session_http.mount('http://', adapter)
+        session_http.mount('https://', adapter)
+
         try:
-            with requests.get(download_url, headers=headers, stream=True, allow_redirects=True, timeout=timeout_sec) as r:
+            with session_http.get(download_url, headers=headers, stream=True, allow_redirects=True, timeout=timeout_sec) as r:
+                print(f"[DEBUG-STREAM] HTTP Response Code: {r.status_code}")
                 r.raise_for_status()
                 total_size = int(r.headers.get('content-length', 0))
+                print(
+                    f"[DEBUG-STREAM] Total Content-Length: {total_size} bytes")
                 downloaded = 0
                 chunk_size = 1024 * 64
 
                 with open(dest_path, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=chunk_size):
                         if bus.cancel_requested:
+                            print("[DEBUG-STREAM] User cancellation flag caught.")
                             raise InterruptedError("USER_CANCELLED")
                         if chunk:
                             f.write(chunk)
@@ -1502,6 +1553,8 @@ class SessionManager:
                                 bus.download_progress.emit(
                                     min(pct, 100), f"Downloading {pack_filename}...")
 
+            print(
+                f"[DEBUG-STREAM] Download fully completed ({downloaded} bytes written).")
             if dest_path not in self.available_packs:
                 self.available_packs.append(dest_path)
 
@@ -1513,11 +1566,14 @@ class SessionManager:
         except InterruptedError:
             if os.path.exists(dest_path):
                 os.remove(dest_path)
+            print("[DEBUG-STREAM] Interrupted by user. Temp file removed.")
             bus.download_finished.emit(False, "Cancelled by user.")
             return False
         except Exception as e:
             if os.path.exists(dest_path):
                 os.remove(dest_path)
+            print(
+                f"[DEBUG-STREAM CRITICAL EXCEPTION] Failed to stream pack from '{download_url}': {e}")
             logger.error(f"Download stream error: {e}")
             bus.download_finished.emit(False, f"Download failed: {e}")
             return False
