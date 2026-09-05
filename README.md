@@ -40,55 +40,57 @@ Developed with **Python 3.12**, **PySide6 (Qt 6)**, and **pyOCD**, B-Link couple
 
 ## 🏗️ Software Architecture
 
-The software architecture implements a decoupled **Dynamic Worker Pattern** using `QThread` and Qt Signals & Slots to ensure hardware operations (SWD transfers, DFU flashing, USB enumeration) never block the UI rendering pipeline[cite: 1, 6].
+The software architecture implements a decoupled **Dynamic Worker Pattern** using `QThread` and Qt Signals & Slots to ensure hardware operations (SWD transfers, DFU flashing, USB enumeration) never block the UI rendering pipeline[cite: 1, 2].
+
+```text
 B-Link-Programmer/
 ├── assets/
-│   ├── app.ico                    # Application executable icon
-│   ├── master_index.idx           # Cached ARM CMSIS-Pack index database
-│   ├── icons/                     # Vector SVG UI iconography
-│   └── packs/                     # Local offline CMSIS-Pack storage (.pack)
-├── profiles/                      # Manufacturing target & SKU configuration profiles
+│   ├── app.ico                    # Application executable icon[cite: 1]
+│   ├── master_index.idx           # Cached ARM CMSIS-Pack index database[cite: 1]
+│   ├── icons/                     # Vector SVG UI iconography[cite: 1]
+│   └── packs/                     # Local offline CMSIS-Pack storage (.pack)[cite: 1]
+├── profiles/                      # Manufacturing target & SKU configuration profiles[cite: 1]
 ├── src/
 │   ├── common/
-│   │   ├── app_updater.py         # Silent background version checker
-│   │   ├── base_worker.py         # Abstract QThread base worker
-│   │   ├── logger.py              # Centralized rotating file and console logger
-│   │   ├── mcu_profiles.py        # Microcontroller target lookup tables
-│   │   ├── pack_downloader.py     # CMSIS-Pack modal downloader & signal dispatcher
-│   │   ├── paths.py               # Runtime path resolver (sys._MEIPASS aware)
-│   │   ├── profile_manager.py     # SKU JSON profile serialization
-│   │   ├── registers.py           # CoreSight & DBGMCU register address maps
-│   │   ├── resources.py           # Static resource constants & SVG icon paths
-│   │   ├── session_manager.py     # pyOCD / USB DFU low-level session manager
-│   │   ├── status_bar.py          # Real-time hardware status monitor thread
-│   │   └── traceability.py        # SQLite logging & CSV generation service
+│   │   ├── app_updater.py         # Silent background version checker[cite: 1, 2]
+│   │   ├── base_worker.py         # Abstract QThread base worker[cite: 1]
+│   │   ├── logger.py              # Centralized rotating file and console logger[cite: 1]
+│   │   ├── mcu_profiles.py        # Microcontroller target lookup tables[cite: 1]
+│   │   ├── pack_downloader.py     # CMSIS-Pack modal downloader & signal dispatcher[cite: 1, 2]
+│   │   ├── paths.py               # Runtime path resolver (sys._MEIPASS aware)[cite: 1, 2]
+│   │   ├── profile_manager.py     # SKU JSON profile serialization[cite: 1]
+│   │   ├── registers.py           # CoreSight & DBGMCU register address maps[cite: 1]
+│   │   ├── resources.py           # Static resource constants & SVG icon paths[cite: 1, 2]
+│   │   ├── session_manager.py     # pyOCD / USB DFU low-level session manager[cite: 1]
+│   │   ├── status_bar.py          # Real-time hardware status monitor thread[cite: 1, 2]
+│   │   └── traceability.py        # SQLite logging & CSV generation service[cite: 1]
 │   ├── features/
-│   │   ├── batch_programmer/      # Multi-probe parallel flashing engine
-│   │   │   ├── probe_card.py      # Individual target slot widget
-│   │   │   ├── probe_manager.py   # USB probe enumeration and hardware abstraction
-│   │   │   ├── widget.py          # Batch programming UI panel
-│   │   │   └── worker.py          # Multi-threaded batch execution worker
-│   │   ├── memory_viewer/         # Hex memory inspection and register tool
-│   │   ├── option_bytes/          # Option bytes & RDP configuration interface
+│   │   ├── batch_programmer/      # Multi-probe parallel flashing engine[cite: 1, 2]
+│   │   │   ├── probe_card.py      # Individual target slot widget[cite: 1]
+│   │   │   ├── probe_manager.py   # USB probe enumeration and hardware abstraction[cite: 1]
+│   │   │   ├── widget.py          # Batch programming UI panel[cite: 1]
+│   │   │   └── worker.py          # Multi-threaded batch execution worker[cite: 1, 3]
+│   │   ├── memory_viewer/         # Hex memory inspection and register tool[cite: 1, 2]
+│   │   ├── option_bytes/          # Option bytes & RDP configuration interface[cite: 1, 2]
 │   │   ├── production_programmer/ # Factory flashing, QA banner, and provisioning[cite: 1, 2]
-│   │   │   ├── provisioning.py    # Serial auto-incrementing & UID injection[cite: 1, 2]
-│   │   │   ├── qa_banner.py       # High-visibility operator status banner
-│   │   │   ├── qa_service.py      # Shift statistics and hardware screening
-│   │   │   ├── verify_service.py  # Image readback verification service
-│   │   │   ├── widget.py          # Production programming view
-│   │   │   └── worker.py          # Flashing, erase, and validation thread
-│   │   ├── script_hooks/          # Pre/Post execution service and config interface[cite: 5, 9]
+│   │   │   ├── provisioning.py    # Serial auto-incrementing & UID injection[cite: 1]
+│   │   │   ├── qa_banner.py       # High-visibility operator status banner[cite: 1]
+│   │   │   ├── qa_service.py      # Shift statistics and hardware screening[cite: 1]
+│   │   │   ├── verify_service.py  # Image readback verification service[cite: 1]
+│   │   │   ├── widget.py          # Production programming view[cite: 1]
+│   │   │   └── worker.py          # Flashing, erase, and validation thread[cite: 1]
+│   │   ├── script_hooks/          # Pre/Post execution service and config interface[cite: 1]
 │   │   ├── serial_monitor/        # CDC UART terminal widget and listener thread[cite: 1, 2]
-│   │   └── target_diagnostic/     # Persistent right-side hardware diagnostic panel
+│   │   └── target_diagnostic/     # Persistent right-side hardware diagnostic panel[cite: 1, 2]
 │   └── gui/
-│       ├── main_window.py         # 4-pane industrial workspace container
-│       └── sidebar.py             # Collapsible vertical navigation drawer[cite: 2, 6]
-├── dfu-util.exe                   # USB DFU flashing runtime engine[cite: 1, 2]
-├── libusb-1.0.dll                 # Native dynamic USB communication backend[cite: 1, 2]
-├── B-Link-Programmer.spec         # PyInstaller multi-file packaging specification
-├── main.py                        # Application bootstrap entry point
-├── production_logs.db             # Local SQLite traceability audit log database
-└── version.json                   # Application build and release metadata
+│       ├── main_window.py         # 4-pane industrial workspace container[cite: 1, 2]
+│       └── sidebar.py             # Collapsible vertical navigation drawer[cite: 1, 2]
+├── dfu-util.exe                   # USB DFU flashing runtime engine[cite: 1]
+├── libusb-1.0.dll                 # Native dynamic USB communication backend[cite: 1]
+├── B-Link-Programmer.spec         # PyInstaller multi-file packaging specification[cite: 1]
+├── main.py                        # Application bootstrap entry point[cite: 1, 2]
+├── production_logs.db             # Local SQLite traceability audit log database[cite: 1]
+└── version.json                   # Application build and release metadata[cite: 1]
 ---
 
 ## ⚙️ Installation & Development Setup
