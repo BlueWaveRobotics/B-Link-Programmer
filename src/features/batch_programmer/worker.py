@@ -1,7 +1,7 @@
 # """
 # Parallel Batch Flashing and Chip Erasing Worker Module.
 # Provides isolated per-probe QThread workers and a centralized batch coordinator
-# to execute simultaneous STM32 multi-target programming and erasing via pyOCD.
+# to execute simultaneous multi-vendor ARM multi-target programming and erasing via pyOCD.
 # """
 
 # import os
@@ -23,7 +23,7 @@
 # class SingleSlotWorker(QObject):
 #     """
 #     Isolated worker running in a dedicated QThread for a single DAPLink probe slot.
-#     Handles SWD connection, 96-bit UID read, firmware flashing, and full chip erase.
+#     Handles SWD connection, UID read, firmware flashing, and full chip erase.
 #     """
 
 #     progress_signal = Signal(str, int)  # (unique_id, percentage)
@@ -39,6 +39,7 @@
 #         clock_freq: int = 1000000,
 #         connect_mode: str = "under-reset",
 #         verify_enabled: bool = True,
+#         target_type: str = "auto",  # 🌟 پذیرش نوع میکروی انتخابی
 #         parent: Optional[QObject] = None,
 #     ):
 #         super().__init__(parent)
@@ -48,6 +49,7 @@
 #         self.clock_freq = clock_freq
 #         self.connect_mode = connect_mode
 #         self.verify_enabled = verify_enabled
+#         self.target_type = target_type  # 🌟 ذخیره نوع میکرو
 #         self._is_running = True
 
 #     def _progress_callback(self, progress: float) -> None:
@@ -58,17 +60,22 @@
 
 #     def _connect_session(self, is_erase: bool = False):
 #         """
-#         Connects to target via pyOCD with automatic under-reset retry fallback
-#         if target MCU is in Lockup / HardFault state due to erased flash memory.
+#         Connects to target via pyOCD using the specified target_type.
 #         """
 #         initial_clock = min(
 #             self.clock_freq, 1000000) if is_erase else self.clock_freq
+
+#         # تعیین تارگت انتخابی برای pyOCD
+#         resolved_target = "cortex_m" if self.target_type in [
+#             "auto", "", "none"] else self.target_type
+
 #         options = {
 #             "connect_mode": self.connect_mode,
 #             "frequency": initial_clock,
 #             "reset_type": "hw" if self.connect_mode == "under-reset" else "default",
 #             "halt_on_connect": True,
 #             "resume_on_disconnect": False,
+#             "target_override": resolved_target,  # 🌟 اعمال تارگت روی اتصال pyOCD
 #         }
 
 #         try:
@@ -83,13 +90,13 @@
 #                 f"[{self.unique_id[:8]}] Primary SWD connection failed ({primary_err}). "
 #                 f"Retrying with hardware under-reset recovery @ 500 kHz..."
 #             )
-#             # Automatic hardware recovery fallback for MCUs in S_LOCKUP state
 #             fallback_options = {
 #                 "connect_mode": "under-reset",
 #                 "frequency": 500000,
 #                 "reset_type": "hw",
 #                 "halt_on_connect": True,
 #                 "resume_on_disconnect": False,
+#                 "target_override": resolved_target,  # 🌟 اعمال تارگت در حالت Fallback
 #             }
 #             session = ConnectHelper.session_with_chosen_probe(
 #                 unique_id=self.unique_id,
@@ -100,31 +107,32 @@
 
 #     @Slot()
 #     def run_slot_flash(self) -> None:
-#         """
-#         Executes programming lifecycle on the specific probe identified by unique_id.
-#         """
+#         """Executes programming lifecycle on the specific probe identified by unique_id."""
 #         session = None
 #         start_time = time.perf_counter()
 #         chip_uid = "UNKNOWN-UID"
 
 #         try:
 #             logger.info(
-#                 f"[{self.unique_id[:8]}] Starting parallel programming session...")
+#                 f"[{self.unique_id[:8]}] Starting parallel programming session for '{self.target_type}'...")
 #             self.status_signal.emit(
-#                 self.unique_id, "BUSY", "Connecting to SWD target...", 0.0, chip_uid)
+#                 self.unique_id, "BUSY", "Connecting to SWD target...", 0.0, chip_uid
+#             )
 
 #             session = self._connect_session(is_erase=False)
 #             target = session.board.target
 
-#             # 1. Read 96-bit Unique Device ID (UID)
-#             try:
-#                 raw_uid_words = target.read_memory_block32(
-#                     DEFAULT_STM32_UID_ADDRESS, 3)
-#                 chip_uid = ProvisioningService.format_96bit_uid(raw_uid_words)
-#             except Exception as uid_err:
-#                 logger.warning(
-#                     f"[{self.unique_id[:8]}] UID Read Warning: {uid_err}")
-#                 chip_uid = "UID-READ-ERROR"
+#             # 1. Read UID (فقط برای بردهای ST یا در صورت خواندن موفقیت‌آمیز)
+#             if "stm32" in str(self.target_type).lower() or self.target_type == "auto":
+#                 try:
+#                     raw_uid_words = target.read_memory_block32(
+#                         DEFAULT_STM32_UID_ADDRESS, 3)
+#                     chip_uid = ProvisioningService.format_96bit_uid(
+#                         raw_uid_words)
+#                 except Exception:
+#                     chip_uid = "UNIVERSAL-UID"
+#             else:
+#                 chip_uid = f"{self.target_type.upper()}-TARGET"
 
 #             # 2. Halt Target Core before programming
 #             try:
@@ -137,7 +145,8 @@
 
 #             # 3. Program Firmware Image
 #             self.status_signal.emit(
-#                 self.unique_id, "BUSY", "Flashing target memory...", 0.0, chip_uid)
+#                 self.unique_id, "BUSY", "Flashing target memory...", 0.0, chip_uid
+#             )
 #             programmer = FileProgrammer(
 #                 session,
 #                 progress=self._progress_callback,
@@ -169,7 +178,8 @@
 #             err_msg = f"Flash failed: {str(exc)}"
 #             logger.error(f"[{self.unique_id[:8]}] {err_msg}")
 #             self.status_signal.emit(
-#                 self.unique_id, "FAIL", err_msg, elapsed_time, chip_uid)
+#                 self.unique_id, "FAIL", err_msg, elapsed_time, chip_uid
+#             )
 #             self.finished_signal.emit(self.unique_id, False)
 
 #         finally:
@@ -182,10 +192,7 @@
 
 #     @Slot()
 #     def run_slot_chip_erase(self) -> None:
-#         """
-#         Executes robust full chip erase sequence with automatic MASS erase fallback
-#         and hardware system reset on the specific probe identified by unique_id.
-#         """
+#         """Executes full chip erase sequence on the specific probe slot."""
 #         session = None
 #         start_time = time.perf_counter()
 #         chip_uid = "UNKNOWN-UID"
@@ -194,20 +201,13 @@
 #             logger.info(
 #                 f"[{self.unique_id[:8]}] Starting parallel Full Chip Erase session...")
 #             self.status_signal.emit(
-#                 self.unique_id, "BUSY", "Connecting for Chip Erase...", 0.0, chip_uid)
+#                 self.unique_id, "BUSY", "Connecting for Chip Erase...", 0.0, chip_uid
+#             )
 
 #             session = self._connect_session(is_erase=True)
 #             target = session.board.target
 
-#             # 1. Read 96-bit UID
-#             try:
-#                 raw_uid_words = target.read_memory_block32(
-#                     DEFAULT_STM32_UID_ADDRESS, 3)
-#                 chip_uid = ProvisioningService.format_96bit_uid(raw_uid_words)
-#             except Exception:
-#                 chip_uid = "UID-READ-ERROR"
-
-#             # 2. Halt Target Core
+#             # Halt Target Core
 #             try:
 #                 target.reset_and_halt()
 #             except Exception:
@@ -218,9 +218,10 @@
 
 #             self.progress_signal.emit(self.unique_id, 20)
 #             self.status_signal.emit(
-#                 self.unique_id, "BUSY", "Erasing all flash sectors...", 0.0, chip_uid)
+#                 self.unique_id, "BUSY", "Erasing all flash sectors...", 0.0, chip_uid
+#             )
 
-#             # 3. Execute Chip Erase with Mass Erase Fallback
+#             # Execute Chip Erase
 #             try:
 #                 eraser = FlashEraser(session, mode=FlashEraser.Mode.CHIP)
 #                 eraser.erase()
@@ -235,8 +236,6 @@
 #                 eraser_mass = FlashEraser(session, mode=FlashEraser.Mode.MASS)
 #                 eraser_mass.erase()
 
-#             # 4. System Reset & Halt Core (Clears Flash Controller Cache & SRAM execution)
-#             # DO NOT call target.resume() on empty flash to prevent S_LOCKUP / HardFault!
 #             try:
 #                 target.reset_and_halt()
 #             except Exception as rst_err:
@@ -255,7 +254,8 @@
 #             err_msg = f"Chip Erase failed: {str(exc)}"
 #             logger.error(f"[{self.unique_id[:8]}] {err_msg}")
 #             self.status_signal.emit(
-#                 self.unique_id, "FAIL", err_msg, elapsed_time, chip_uid)
+#                 self.unique_id, "FAIL", err_msg, elapsed_time, chip_uid
+#             )
 #             self.finished_signal.emit(self.unique_id, False)
 
 #         finally:
@@ -270,15 +270,11 @@
 # class BatchProgrammerCoordinator(QObject):
 #     """
 #     Central coordinator orchestrating multiple SingleSlotWorker threads in parallel.
-#     Tracks overall batch execution completion and aggregates slot signals.
 #     """
 
-#     batch_started_signal = Signal(int)  # Total enabled slots count
-#     # Forwarded slot progress: (unique_id, percent)
+#     batch_started_signal = Signal(int)
 #     batch_progress_signal = Signal(str, int)
-#     batch_slot_status_signal = Signal(
-#         str, str, str, float, str)  # Forwarded status
-#     # (total_pass, total_fail, batch_duration)
+#     batch_slot_status_signal = Signal(str, str, str, float, str)
 #     batch_completed_signal = Signal(int, int, float)
 
 #     def __init__(self, parent: Optional[QObject] = None):
@@ -289,9 +285,9 @@
 #         self._pass_count = 0
 #         self._fail_count = 0
 #         self._batch_start_time = 0.0
+#         self.target_type = "auto"  # 🌟 ذخیره نوع میکرو در سطح هماهنگ‌کننده
 
 #     def _prepare_batch_run(self, enabled_probe_ids: List[str]) -> bool:
-#         """Resets internal counters and prepares thread arrays safely."""
 #         self.stop_all_workers()
 #         if not enabled_probe_ids:
 #             logger.warning("No probe slots enabled for batch operation.")
@@ -314,7 +310,6 @@
 #         connect_mode: str = "under-reset",
 #         verify_enabled: bool = True,
 #     ) -> tuple[QThread, SingleSlotWorker]:
-#         """Creates a thread-worker pair and connects all signal forwarders cleanly."""
 #         thread = QThread()
 #         worker = SingleSlotWorker(
 #             unique_id=unique_id,
@@ -323,13 +318,13 @@
 #             clock_freq=clock_freq,
 #             connect_mode=connect_mode,
 #             verify_enabled=verify_enabled,
+#             target_type=self.target_type,  # 🌟 پاس دادن تارگت انتخابی به ورکر اسلات
 #         )
 #         worker.moveToThread(thread)
 
 #         worker.progress_signal.connect(self.batch_progress_signal.emit)
 #         worker.status_signal.connect(self.batch_slot_status_signal.emit)
 #         worker.finished_signal.connect(self._on_slot_finished)
-
 #         worker.finished_signal.connect(lambda _, __, t=thread: t.quit())
 
 #         self._threads.append(thread)
@@ -346,14 +341,12 @@
 #         connect_mode: str = "under-reset",
 #         verify_enabled: bool = True,
 #     ) -> None:
-#         """
-#         Spawns a parallel QThread for every enabled probe ID and starts programming simultaneously.
-#         """
 #         if not self._prepare_batch_run(enabled_probe_ids):
 #             return
 
 #         logger.info(
-#             f"Launching parallel batch flash across {self._pending_slots} B-Link probes...")
+#             f"Launching parallel batch flash across {self._pending_slots} B-Link probes (Target: '{self.target_type}')..."
+#         )
 #         for unique_id in enabled_probe_ids:
 #             thread, worker = self._create_and_wire_worker(
 #                 unique_id=unique_id,
@@ -373,14 +366,12 @@
 #         clock_freq: int = 1000000,
 #         connect_mode: str = "under-reset",
 #     ) -> None:
-#         """
-#         Spawns a parallel QThread for every enabled probe ID and starts FULL CHIP ERASE simultaneously.
-#         """
 #         if not self._prepare_batch_run(enabled_probe_ids):
 #             return
 
 #         logger.info(
-#             f"Launching parallel Full Chip Erase across {self._pending_slots} B-Link probes...")
+#             f"Launching parallel Full Chip Erase across {self._pending_slots} B-Link probes (Target: '{self.target_type}')..."
+#         )
 #         for unique_id in enabled_probe_ids:
 #             thread, worker = self._create_and_wire_worker(
 #                 unique_id=unique_id,
@@ -392,28 +383,19 @@
 
 #     @Slot(str, bool)
 #     def _on_slot_finished(self, unique_id: str, success: bool) -> None:
-#         """
-#         Tracks completed slots and emits final batch stats when all parallel slots finish.
-#         """
 #         if success:
 #             self._pass_count += 1
 #         else:
 #             self._fail_count += 1
 
 #         self._pending_slots -= 1
-#         logger.info(
-#             f"Slot [{unique_id[:8]}] finished. Remaining slots: {self._pending_slots}")
-
 #         if self._pending_slots <= 0:
 #             total_time = time.perf_counter() - self._batch_start_time
-#             logger.info(
-#                 f"✔ Batch execution complete! PASS: {self._pass_count} | FAIL: {self._fail_count} | Duration: {total_time:.2f}s"
-#             )
 #             self.batch_completed_signal.emit(
-#                 self._pass_count, self._fail_count, total_time)
+#                 self._pass_count, self._fail_count, total_time
+#             )
 
 #     def stop_all_workers(self) -> None:
-#         """Safely shuts down and cleans up all active or finished batch threads and workers."""
 #         for thread in self._threads:
 #             try:
 #                 if thread and thread.isRunning():
@@ -438,6 +420,7 @@ to execute simultaneous multi-vendor ARM multi-target programming and erasing vi
 """
 
 import os
+import glob
 import time
 from typing import List, Optional
 from PySide6.QtCore import QObject, QThread, Signal, Slot
@@ -451,6 +434,7 @@ from src.features.production_programmer.provisioning import ProvisioningService
 logger = get_logger("BatchProgrammerWorker")
 
 DEFAULT_STM32_UID_ADDRESS = 0x1FFFF7E8
+PACK_CACHE_DIR = os.path.join(os.path.expanduser("~"), ".blink_packs")
 
 
 class SingleSlotWorker(QObject):
@@ -460,7 +444,6 @@ class SingleSlotWorker(QObject):
     """
 
     progress_signal = Signal(str, int)  # (unique_id, percentage)
-    # (unique_id, status_code, message, cycle_time, chip_uid)
     status_signal = Signal(str, str, str, float, str)
     finished_signal = Signal(str, bool)  # (unique_id, success)
 
@@ -472,7 +455,7 @@ class SingleSlotWorker(QObject):
         clock_freq: int = 1000000,
         connect_mode: str = "under-reset",
         verify_enabled: bool = True,
-        target_type: str = "auto",  # 🌟 پذیرش نوع میکروی انتخابی
+        target_type: str = "auto",
         parent: Optional[QObject] = None,
     ):
         super().__init__(parent)
@@ -482,7 +465,7 @@ class SingleSlotWorker(QObject):
         self.clock_freq = clock_freq
         self.connect_mode = connect_mode
         self.verify_enabled = verify_enabled
-        self.target_type = target_type  # 🌟 ذخیره نوع میکرو
+        self.target_type = target_type
         self._is_running = True
 
     def _progress_callback(self, progress: float) -> None:
@@ -491,16 +474,30 @@ class SingleSlotWorker(QObject):
             percent = max(0, min(int(progress * 100), 100))
             self.progress_signal.emit(self.unique_id, percent)
 
+    def _get_pack_list(self) -> List[str]:
+        """Loads cached CMSIS packs for reliable target flash programming."""
+        if os.path.exists(PACK_CACHE_DIR):
+            packs = glob.glob(os.path.join(PACK_CACHE_DIR, "*.pack"))
+            return packs
+        return []
+
     def _connect_session(self, is_erase: bool = False):
         """
-        Connects to target via pyOCD using the specified target_type.
+        Connects to target via pyOCD using explicit device override or None for auto-discovery.
         """
         initial_clock = min(
             self.clock_freq, 1000000) if is_erase else self.clock_freq
 
-        # تعیین تارگت انتخابی برای pyOCD
-        resolved_target = "cortex_m" if self.target_type in [
-            "auto", "", "none"] else self.target_type
+        # If target_type is auto, passing None allows pyOCD to auto-detect the ST/ARM part
+        target_override = None if self.target_type in [
+            "auto", "", "none", None] else self.target_type
+        packs = self._get_pack_list()
+
+        print(
+            f"[DEBUG-BATCH-WORKER {self.unique_id[:8]}] Connecting -> Target Override: {target_override}, Clock: {initial_clock}Hz, Mode: {self.connect_mode}")
+        if packs:
+            print(
+                f"[DEBUG-BATCH-WORKER {self.unique_id[:8]}] Loaded Packs: {packs}")
 
         options = {
             "connect_mode": self.connect_mode,
@@ -508,7 +505,8 @@ class SingleSlotWorker(QObject):
             "reset_type": "hw" if self.connect_mode == "under-reset" else "default",
             "halt_on_connect": True,
             "resume_on_disconnect": False,
-            "target_override": resolved_target,  # 🌟 اعمال تارگت روی اتصال pyOCD
+            "target_override": target_override,
+            "pack": packs if packs else None
         }
 
         try:
@@ -517,25 +515,28 @@ class SingleSlotWorker(QObject):
                 options=options,
             )
             session.open()
+            print(
+                f"[DEBUG-BATCH-WORKER {self.unique_id[:8]}] Session established successfully with part: {getattr(session.board.target, 'part_number', 'Generic')}")
             return session
         except Exception as primary_err:
-            logger.warning(
-                f"[{self.unique_id[:8]}] Primary SWD connection failed ({primary_err}). "
-                f"Retrying with hardware under-reset recovery @ 500 kHz..."
-            )
+            print(
+                f"[DEBUG-BATCH-WORKER {self.unique_id[:8]}] Primary connection failed: {primary_err}. Attempting recovery fallback...")
             fallback_options = {
                 "connect_mode": "under-reset",
                 "frequency": 500000,
                 "reset_type": "hw",
                 "halt_on_connect": True,
                 "resume_on_disconnect": False,
-                "target_override": resolved_target,  # 🌟 اعمال تارگت در حالت Fallback
+                "target_override": target_override,
+                "pack": packs if packs else None
             }
             session = ConnectHelper.session_with_chosen_probe(
                 unique_id=self.unique_id,
                 options=fallback_options,
             )
             session.open()
+            print(
+                f"[DEBUG-BATCH-WORKER {self.unique_id[:8]}] Fallback connection established successfully.")
             return session
 
     @Slot()
@@ -546,8 +547,8 @@ class SingleSlotWorker(QObject):
         chip_uid = "UNKNOWN-UID"
 
         try:
-            logger.info(
-                f"[{self.unique_id[:8]}] Starting parallel programming session for '{self.target_type}'...")
+            print(
+                f"[DEBUG-BATCH-WORKER {self.unique_id[:8]}] Starting Flash Programming sequence...")
             self.status_signal.emit(
                 self.unique_id, "BUSY", "Connecting to SWD target...", 0.0, chip_uid
             )
@@ -555,19 +556,19 @@ class SingleSlotWorker(QObject):
             session = self._connect_session(is_erase=False)
             target = session.board.target
 
-            # 1. Read UID (فقط برای بردهای ST یا در صورت خواندن موفقیت‌آمیز)
-            if "stm32" in str(self.target_type).lower() or self.target_type == "auto":
-                try:
-                    raw_uid_words = target.read_memory_block32(
-                        DEFAULT_STM32_UID_ADDRESS, 3)
-                    chip_uid = ProvisioningService.format_96bit_uid(
-                        raw_uid_words)
-                except Exception:
-                    chip_uid = "UNIVERSAL-UID"
-            else:
-                chip_uid = f"{self.target_type.upper()}-TARGET"
+            # 1. Read UID
+            try:
+                raw_uid_words = target.read_memory_block32(
+                    DEFAULT_STM32_UID_ADDRESS, 3)
+                chip_uid = ProvisioningService.format_96bit_uid(raw_uid_words)
+                print(
+                    f"[DEBUG-BATCH-WORKER {self.unique_id[:8]}] Target UID: {chip_uid}")
+            except Exception as uid_err:
+                print(
+                    f"[DEBUG-BATCH-WORKER {self.unique_id[:8]}] UID read bypassed: {uid_err}")
+                chip_uid = "UNIVERSAL-TARGET"
 
-            # 2. Halt Target Core before programming
+            # 2. Halt Target Core
             try:
                 target.reset_and_halt()
             except Exception:
@@ -580,6 +581,8 @@ class SingleSlotWorker(QObject):
             self.status_signal.emit(
                 self.unique_id, "BUSY", "Flashing target memory...", 0.0, chip_uid
             )
+            print(
+                f"[DEBUG-BATCH-WORKER {self.unique_id[:8]}] Invoking FileProgrammer on file: {self.file_path}")
             programmer = FileProgrammer(
                 session,
                 progress=self._progress_callback,
@@ -590,14 +593,16 @@ class SingleSlotWorker(QObject):
                 base_address=self.base_address,
                 verify=self.verify_enabled,
             )
+            print(
+                f"[DEBUG-BATCH-WORKER {self.unique_id[:8]}] Programming verified successfully.")
 
             # 4. Target Reset & Resume Execution
             try:
                 target.reset_and_halt()
                 target.resume()
             except Exception as rst_err:
-                logger.warning(
-                    f"[{self.unique_id[:8]}] Post-flash reset warning: {rst_err}")
+                print(
+                    f"[DEBUG-BATCH-WORKER {self.unique_id[:8]}] Post-flash reset notice: {rst_err}")
 
             elapsed_time = time.perf_counter() - start_time
             self.progress_signal.emit(self.unique_id, 100)
@@ -609,7 +614,8 @@ class SingleSlotWorker(QObject):
         except Exception as exc:
             elapsed_time = time.perf_counter() - start_time
             err_msg = f"Flash failed: {str(exc)}"
-            logger.error(f"[{self.unique_id[:8]}] {err_msg}")
+            print(
+                f"[DEBUG-BATCH-WORKER {self.unique_id[:8]} EXCEPTION] {err_msg}")
             self.status_signal.emit(
                 self.unique_id, "FAIL", err_msg, elapsed_time, chip_uid
             )
@@ -620,6 +626,8 @@ class SingleSlotWorker(QObject):
             if session:
                 try:
                     session.close()
+                    print(
+                        f"[DEBUG-BATCH-WORKER {self.unique_id[:8]}] Session closed.")
                 except Exception:
                     pass
 
@@ -631,8 +639,8 @@ class SingleSlotWorker(QObject):
         chip_uid = "UNKNOWN-UID"
 
         try:
-            logger.info(
-                f"[{self.unique_id[:8]}] Starting parallel Full Chip Erase session...")
+            print(
+                f"[DEBUG-BATCH-WORKER {self.unique_id[:8]}] Full Chip Erase routine triggered.")
             self.status_signal.emit(
                 self.unique_id, "BUSY", "Connecting for Chip Erase...", 0.0, chip_uid
             )
@@ -641,6 +649,8 @@ class SingleSlotWorker(QObject):
             target = session.board.target
 
             # Halt Target Core
+            print(
+                f"[DEBUG-BATCH-WORKER {self.unique_id[:8]}] Halting target core...")
             try:
                 target.reset_and_halt()
             except Exception:
@@ -655,25 +665,30 @@ class SingleSlotWorker(QObject):
             )
 
             # Execute Chip Erase
+            print(
+                f"[DEBUG-BATCH-WORKER {self.unique_id[:8]}] Invoking FlashEraser (CHIP Mode)...")
             try:
                 eraser = FlashEraser(session, mode=FlashEraser.Mode.CHIP)
                 eraser.erase()
-            except Exception:
-                logger.warning(
-                    f"[{self.unique_id[:8]}] Chip Erase algorithm faulted. Attempting Hardware MASS Erase..."
-                )
+                print(
+                    f"[DEBUG-BATCH-WORKER {self.unique_id[:8]}] FlashEraser (CHIP Mode) executed successfully.")
+            except Exception as e_chip:
+                print(
+                    f"[DEBUG-BATCH-WORKER {self.unique_id[:8]} WARNING] Mode.CHIP failed ({e_chip}). Attempting Mode.MASS fallback...")
                 try:
                     target.halt()
                 except Exception:
                     pass
                 eraser_mass = FlashEraser(session, mode=FlashEraser.Mode.MASS)
                 eraser_mass.erase()
+                print(
+                    f"[DEBUG-BATCH-WORKER {self.unique_id[:8]}] FlashEraser (MASS Mode) executed successfully.")
 
             try:
                 target.reset_and_halt()
             except Exception as rst_err:
-                logger.warning(
-                    f"[{self.unique_id[:8]}] Post-erase reset warning: {rst_err}")
+                print(
+                    f"[DEBUG-BATCH-WORKER {self.unique_id[:8]}] Post-erase reset warning: {rst_err}")
 
             elapsed_time = time.perf_counter() - start_time
             self.progress_signal.emit(self.unique_id, 100)
@@ -685,7 +700,8 @@ class SingleSlotWorker(QObject):
         except Exception as exc:
             elapsed_time = time.perf_counter() - start_time
             err_msg = f"Chip Erase failed: {str(exc)}"
-            logger.error(f"[{self.unique_id[:8]}] {err_msg}")
+            print(
+                f"[DEBUG-BATCH-WORKER {self.unique_id[:8]} EXCEPTION] {err_msg}")
             self.status_signal.emit(
                 self.unique_id, "FAIL", err_msg, elapsed_time, chip_uid
             )
@@ -696,6 +712,8 @@ class SingleSlotWorker(QObject):
             if session:
                 try:
                     session.close()
+                    print(
+                        f"[DEBUG-BATCH-WORKER {self.unique_id[:8]}] Session closed.")
                 except Exception:
                     pass
 
@@ -718,12 +736,12 @@ class BatchProgrammerCoordinator(QObject):
         self._pass_count = 0
         self._fail_count = 0
         self._batch_start_time = 0.0
-        self.target_type = "auto"  # 🌟 ذخیره نوع میکرو در سطح هماهنگ‌کننده
+        self.target_type = "auto"
 
     def _prepare_batch_run(self, enabled_probe_ids: List[str]) -> bool:
         self.stop_all_workers()
         if not enabled_probe_ids:
-            logger.warning("No probe slots enabled for batch operation.")
+            print("[DEBUG-COORDINATOR] No probe slots enabled for batch operation.")
             self.batch_completed_signal.emit(0, 0, 0.0)
             return False
 
@@ -751,7 +769,7 @@ class BatchProgrammerCoordinator(QObject):
             clock_freq=clock_freq,
             connect_mode=connect_mode,
             verify_enabled=verify_enabled,
-            target_type=self.target_type,  # 🌟 پاس دادن تارگت انتخابی به ورکر اسلات
+            target_type=self.target_type,
         )
         worker.moveToThread(thread)
 
@@ -777,9 +795,8 @@ class BatchProgrammerCoordinator(QObject):
         if not self._prepare_batch_run(enabled_probe_ids):
             return
 
-        logger.info(
-            f"Launching parallel batch flash across {self._pending_slots} B-Link probes (Target: '{self.target_type}')..."
-        )
+        print(
+            f"[DEBUG-COORDINATOR] Launching Batch Flashing on {self._pending_slots} targets (Target: '{self.target_type}')...")
         for unique_id in enabled_probe_ids:
             thread, worker = self._create_and_wire_worker(
                 unique_id=unique_id,
@@ -802,9 +819,8 @@ class BatchProgrammerCoordinator(QObject):
         if not self._prepare_batch_run(enabled_probe_ids):
             return
 
-        logger.info(
-            f"Launching parallel Full Chip Erase across {self._pending_slots} B-Link probes (Target: '{self.target_type}')..."
-        )
+        print(
+            f"[DEBUG-COORDINATOR] Launching Batch Chip Erase on {self._pending_slots} targets (Target: '{self.target_type}')...")
         for unique_id in enabled_probe_ids:
             thread, worker = self._create_and_wire_worker(
                 unique_id=unique_id,
@@ -822,8 +838,12 @@ class BatchProgrammerCoordinator(QObject):
             self._fail_count += 1
 
         self._pending_slots -= 1
+        print(
+            f"[DEBUG-COORDINATOR] Slot {unique_id[:8]} finished (Success={success}). Remaining: {self._pending_slots}")
         if self._pending_slots <= 0:
             total_time = time.perf_counter() - self._batch_start_time
+            print(
+                f"[DEBUG-COORDINATOR] Batch run complete. PASS={self._pass_count}, FAIL={self._fail_count}, Time={total_time:.2f}s")
             self.batch_completed_signal.emit(
                 self._pass_count, self._fail_count, total_time
             )

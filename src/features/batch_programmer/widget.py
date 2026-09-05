@@ -1,11 +1,11 @@
 # """
-# Industrial Batch Programmer UI Widget for parallel STM32 multi-target deployment.
+# Industrial Batch Programmer UI Widget for parallel multi-target deployment.
 # Integrates dynamic DAPLink probe discovery, per-slot visual status cards,
 # firmware selection, and synchronized multi-threaded batch execution and chip erasing.
+# Dynamically maps memory base addresses according to detected MCU target.
 # """
 
 # import os
-# from src.common.resources import QSS_CHEVRON_DOWN, ICON_HOURGLASS, ICON_ARROWS_ROTATE, ICON_FOLDER_OPEN
 # from typing import Dict, List, Optional
 # from PySide6.QtCore import Qt, Slot
 # from PySide6.QtGui import QIcon, QColor
@@ -26,19 +26,15 @@
 #     QTextEdit,
 # )
 
+# from src.common.resources import QSS_CHEVRON_DOWN, ICON_HOURGLASS, ICON_ARROWS_ROTATE, ICON_FOLDER_OPEN
 # from src.common import get_logger
+# from src.common.mcu_profiles import get_memory_presets
 # from src.features.batch_programmer.probe_manager import ProbeManagerService, ProbeInfo
 # from src.features.batch_programmer.worker import BatchProgrammerCoordinator
 # from src.features.batch_programmer.probe_card import ProbeSlotCard
 
 # logger = get_logger("BatchProgrammerWidget")
 
-# ADDRESS_PRESETS = [
-#     ("0x08000000 - Main Flash Memory (Default Start)", "0x08000000"),
-#     ("0x08004000 - Application Offset (16 KB Bootloader)", "0x08004000"),
-#     ("0x08008000 - Application Offset (32 KB Bootloader)", "0x08008000"),
-#     ("0x08010000 - Application Offset (64 KB Bootloader)", "0x08010000"),
-# ]
 # BLUEWAVE_STYLE = """
 # /* تنظیمات پایه ویجت */
 # QWidget {
@@ -147,7 +143,7 @@
 #     border-left: 1px solid #1A2642;
 # }
 # QComboBox::down-arrow {
-#     image: url(assets/icons/chevron-down-solid-full.svg);
+#     image: url(CHEVRON_DOWN);
 #     width: 14px;
 #     height: 14px;
 # }
@@ -210,19 +206,32 @@
 
 # class BatchProgrammerWidget(QWidget):
 #     """
-#     Master GUI panel for multi-target simultaneous STM32 production programming & erasing.
+#     Master GUI panel for multi-target simultaneous production programming & erasing.
 #     """
 
 #     def __init__(self, parent: Optional[QWidget] = None):
 #         super().__init__(parent)
 #         self.coordinator = BatchProgrammerCoordinator(self)
 #         self.slot_cards: Dict[str, ProbeSlotCard] = {}
+#         self.current_mcu_target: str = "auto"
 
 #         self.setStyleSheet(final_stylesheet)
 
 #         self._setup_ui()
 #         self._connect_coordinator_signals()
 #         self.scan_connected_probes()
+#         self.set_mcu_target("auto")
+
+#     @Slot(str)
+#     def set_mcu_target(self, target_name: str) -> None:
+#         """Dynamically update base address presets according to selected target MCU."""
+#         self.current_mcu_target = target_name
+#         self.combo_address.clear()
+#         presets = get_memory_presets(target_name)
+#         for label, addr in presets:
+#             self.combo_address.addItem(label, addr)
+#         logger.info(
+#             f"BatchProgrammerWidget target updated to: '{self.current_mcu_target}'")
 
 #     def _setup_ui(self) -> None:
 #         main_layout = QVBoxLayout(self)
@@ -240,12 +249,12 @@
 #         file_layout = QHBoxLayout()
 #         self.txt_filepath = QLineEdit()
 #         self.txt_filepath.setPlaceholderText(
-#             "Select shared firmware binary (.hex / .bin)...")
+#             "Select shared firmware binary (.hex / .bin)..."
+#         )
 #         self.txt_filepath.setReadOnly(True)
 
 #         self.btn_browse = QPushButton(" Browse...")
-#         self.btn_browse.setIcon(
-#             QIcon(ICON_FOLDER_OPEN))
+#         self.btn_browse.setIcon(QIcon(ICON_FOLDER_OPEN))
 #         self.btn_browse.clicked.connect(self._select_file)
 
 #         file_layout.addWidget(QLabel("Firmware:"))
@@ -257,14 +266,13 @@
 #         cfg_layout.addWidget(QLabel("Base Address:"))
 #         self.combo_address = QComboBox()
 #         self.combo_address.setEditable(True)
-#         for label, addr in ADDRESS_PRESETS:
-#             self.combo_address.addItem(label, addr)
 #         cfg_layout.addWidget(self.combo_address, stretch=1)
 
 #         cfg_layout.addWidget(QLabel("SWD Clock:"))
 #         self.combo_clock = QComboBox()
 #         self.combo_clock.addItems(
-#             ["1000 kHz", "2000 kHz", "4000 kHz", "500 kHz"])
+#             ["1000 kHz", "2000 kHz", "4000 kHz", "500 kHz"]
+#         )
 #         self.combo_clock.setCurrentText("1000 kHz")
 #         cfg_layout.addWidget(self.combo_clock)
 
@@ -293,11 +301,11 @@
 #         toolbar_layout = QHBoxLayout()
 #         self.lbl_probe_count = QLabel("Active Probes: 0")
 #         self.lbl_probe_count.setStyleSheet(
-#             "font-weight: bold; color: #10B981;")
+#             "font-weight: bold; color: #10B981;"
+#         )
 
 #         self.btn_scan = QPushButton(" Scan / Refresh Probes")
-#         self.btn_scan.setIcon(
-#             QIcon(ICON_ARROWS_ROTATE))
+#         self.btn_scan.setIcon(QIcon(ICON_ARROWS_ROTATE))
 #         self.btn_scan.clicked.connect(self.scan_connected_probes)
 
 #         toolbar_layout.addWidget(self.lbl_probe_count)
@@ -308,7 +316,8 @@
 #         self.scroll_area = QScrollArea()
 #         self.scroll_area.setWidgetResizable(True)
 #         self.scroll_area.setStyleSheet(
-#             "QScrollArea { border: none; background: transparent; }")
+#             "QScrollArea { border: none; background: transparent; }"
+#         )
 
 #         self.slots_container = QWidget()
 #         self.slots_container.setStyleSheet("background: transparent;")
@@ -329,15 +338,11 @@
 
 #         self.btn_start_batch = QPushButton(" START BATCH PRODUCTION FLASH")
 #         self.btn_start_batch.setObjectName("btnStartBatch")
-#         self.btn_start_batch.setIcon(
-#             QIcon())
 #         self.btn_start_batch.setMinimumHeight(40)
 #         self.btn_start_batch.clicked.connect(self._start_batch_flashing)
 
 #         self.btn_chip_erase = QPushButton(" FULL CHIP ERASE (ALL SLOTS)")
 #         self.btn_chip_erase.setObjectName("btnChipErase")
-#         self.btn_chip_erase.setIcon(
-#             QIcon())
 #         self.btn_chip_erase.setMinimumHeight(40)
 #         self.btn_chip_erase.clicked.connect(self._start_batch_chip_erase)
 
@@ -355,7 +360,8 @@
 #         main_layout.addWidget(self.log_viewer, stretch=2)
 
 #         self._append_log(
-#             "[SYSTEM] Batch Programmer Suite Ready. Please scan connected B-Link probes.")
+#             "[SYSTEM] Batch Programmer Suite Ready. Please scan connected B-Link probes."
+#         )
 
 #     def _connect_coordinator_signals(self) -> None:
 #         """Wires batch coordinator signals to UI state handlers."""
@@ -363,7 +369,8 @@
 #         self.coordinator.batch_progress_signal.connect(self._on_slot_progress)
 #         self.coordinator.batch_slot_status_signal.connect(self._on_slot_status)
 #         self.coordinator.batch_completed_signal.connect(
-#             self._on_batch_completed)
+#             self._on_batch_completed
+#         )
 
 #     @Slot()
 #     def scan_connected_probes(self) -> None:
@@ -373,20 +380,25 @@
 
 #         if not probes:
 #             self.lbl_probe_count.setText(
-#                 "Active Probes: 0 (No B-Link devices found)")
+#                 "Active Probes: 0 (No B-Link devices found)"
+#             )
 #             self.lbl_probe_count.setStyleSheet(
-#                 "font-weight: bold; color: #EF4444;")
+#                 "font-weight: bold; color: #EF4444;"
+#             )
 #             self._append_log(
-#                 "[WARNING] No B-Link hardware probes detected on USB bus.")
+#                 "[WARNING] No B-Link hardware probes detected on USB bus."
+#             )
 #             return
 
 #         self.lbl_probe_count.setText(f"Active Probes: {len(probes)} detected")
 #         self.lbl_probe_count.setStyleSheet(
-#             "font-weight: bold; color: #10B981;")
+#             "font-weight: bold; color: #10B981;"
+#         )
 
 #         for idx, probe_info in enumerate(probes):
-#             card = ProbeSlotCard(probe_info=probe_info,
-#                                  parent=self.slots_container)
+#             card = ProbeSlotCard(
+#                 probe_info=probe_info, parent=self.slots_container
+#             )
 
 #             card.setObjectName("ProbeSlotCard")
 #             card.setProperty("status", "NORMAL")
@@ -396,7 +408,8 @@
 #             self.slot_cards[probe_info.unique_id] = card
 
 #         self._append_log(
-#             f"[INFO] Enumerate complete. Displaying {len(probes)} probe slots.")
+#             f"[INFO] Enumerate complete. Displaying {len(probes)} probe slots."
+#         )
 
 #     def _clear_slot_cards(self) -> None:
 #         """Removes existing slot cards from UI grid."""
@@ -409,7 +422,10 @@
 
 #     def _select_file(self) -> None:
 #         file_path, _ = QFileDialog.getOpenFileName(
-#             self, "Select Shared Firmware", "", "Firmware Files (*.hex *.bin);;All Files (*)"
+#             self,
+#             "Select Shared Firmware",
+#             "",
+#             "Firmware Files (*.hex *.bin);;All Files (*)",
 #         )
 #         if file_path:
 #             self.txt_filepath.setText(os.path.normpath(file_path))
@@ -424,7 +440,11 @@
 #         clean_text = text.strip()
 #         if " - " in clean_text:
 #             clean_text = self.combo_address.currentData()
-#         return int(clean_text, 16) if clean_text.lower().startswith("0x") else int(clean_text)
+#         return (
+#             int(clean_text, 16)
+#             if clean_text.lower().startswith("0x")
+#             else int(clean_text)
+#         )
 
 #     def _parse_clock_freq(self) -> int:
 #         freq_str = self.combo_clock.currentText().split()[0]
@@ -432,7 +452,11 @@
 
 #     def _get_enabled_probe_ids(self) -> List[str]:
 #         """Returns unique IDs of all checked probe slots."""
-#         return [uid for uid, card in self.slot_cards.items() if card.is_slot_enabled]
+#         return [
+#             uid
+#             for uid, card in self.slot_cards.items()
+#             if card.is_slot_enabled
+#         ]
 
 #     def _set_action_buttons_enabled(self, enabled: bool) -> None:
 #         """Toggles main action controls during background execution."""
@@ -444,28 +468,39 @@
 #         file_path = self.txt_filepath.text().strip()
 #         if not file_path or not os.path.exists(file_path):
 #             QMessageBox.warning(
-#                 self, "Invalid File", "Please select a valid firmware file before flashing.")
+#                 self,
+#                 "Invalid File",
+#                 "Please select a valid firmware file before flashing.",
+#             )
 #             return
 
 #         enabled_ids = self._get_enabled_probe_ids()
 #         if not enabled_ids:
-#             QMessageBox.warning(self, "No Active Slots",
-#                                 "Please enable at least one probe slot.")
+#             QMessageBox.warning(
+#                 self,
+#                 "No Active Slots",
+#                 "Please enable at least one probe slot.",
+#             )
 #             return
 
 #         try:
 #             base_addr = self._parse_input_address(
-#                 self.combo_address.currentText())
+#                 self.combo_address.currentText()
+#             )
 #             clock_freq = self._parse_clock_freq()
 #         except ValueError as err:
-#             QMessageBox.critical(self, "Configuration Error",
-#                                  f"Invalid numeric format: {str(err)}")
+#             QMessageBox.critical(
+#                 self,
+#                 "Configuration Error",
+#                 f"Invalid numeric format: {str(err)}",
+#             )
 #             return
 
 #         for uid in enabled_ids:
 #             if uid in self.slot_cards:
 #                 self.slot_cards[uid].set_busy_state(
-#                     "Waiting for flash thread spawn...")
+#                     "Waiting for flash thread spawn..."
+#                 )
 
 #                 card = self.slot_cards[uid]
 #                 card.setProperty("status", "BUSY")
@@ -474,27 +509,36 @@
 
 #         self._set_action_buttons_enabled(False)
 
-#         self.btn_start_batch.setIcon(
-#             QIcon(ICON_HOURGLASS))
+#         self.btn_start_batch.setIcon(QIcon(ICON_HOURGLASS))
 #         self.btn_start_batch.setText(" FLASHING IN PROGRESS...")
 
 #         self._append_log(
-#             f"[BATCH FLASH START] Launching simultaneous programming on {len(enabled_ids)} targets...")
-#         self.coordinator.start_batch_flashing(
-#             enabled_probe_ids=enabled_ids,
-#             file_path=file_path,
-#             base_address=base_addr,
-#             clock_freq=clock_freq,
-#             connect_mode=self.combo_mode.currentText(),
-#             verify_enabled=self.chk_verify.isChecked(),
+#             f"[BATCH FLASH START] Launching simultaneous programming on {len(enabled_ids)} targets (Target Mode: '{self.current_mcu_target}')..."
 #         )
+
+#         # ارسال target_type به کئوردیناتور (اگر کئوردیناتور ورودی target_type بپذیرد)
+#         kwargs = {
+#             "enabled_probe_ids": enabled_ids,
+#             "file_path": file_path,
+#             "base_address": base_addr,
+#             "clock_freq": clock_freq,
+#             "connect_mode": self.combo_mode.currentText(),
+#             "verify_enabled": self.chk_verify.isChecked(),
+#         }
+#         if hasattr(self.coordinator, "target_type"):
+#             self.coordinator.target_type = self.current_mcu_target
+
+#         self.coordinator.start_batch_flashing(**kwargs)
 
 #     def _start_batch_chip_erase(self) -> None:
 #         """Triggers simultaneous Full Chip Erase across all enabled slots."""
 #         enabled_ids = self._get_enabled_probe_ids()
 #         if not enabled_ids:
-#             QMessageBox.warning(self, "No Active Slots",
-#                                 "Please enable at least one probe slot.")
+#             QMessageBox.warning(
+#                 self,
+#                 "No Active Slots",
+#                 "Please enable at least one probe slot.",
+#             )
 #             return
 
 #         reply = QMessageBox.question(
@@ -511,8 +555,11 @@
 #         try:
 #             clock_freq = self._parse_clock_freq()
 #         except ValueError as err:
-#             QMessageBox.critical(self, "Configuration Error",
-#                                  f"Invalid numeric format: {str(err)}")
+#             QMessageBox.critical(
+#                 self,
+#                 "Configuration Error",
+#                 f"Invalid numeric format: {str(err)}",
+#             )
 #             return
 
 #         for uid in enabled_ids:
@@ -526,12 +573,16 @@
 
 #         self._set_action_buttons_enabled(False)
 
-#         self.btn_chip_erase.setIcon(
-#             QIcon(ICON_HOURGLASS))
+#         self.btn_chip_erase.setIcon(QIcon(ICON_HOURGLASS))
 #         self.btn_chip_erase.setText(" ERASING IN PROGRESS...")
 
 #         self._append_log(
-#             f"[BATCH ERASE START] Launching simultaneous Full Chip Erase on {len(enabled_ids)} targets...")
+#             f"[BATCH ERASE START] Launching simultaneous Full Chip Erase on {len(enabled_ids)} targets..."
+#         )
+
+#         if hasattr(self.coordinator, "target_type"):
+#             self.coordinator.target_type = self.current_mcu_target
+
 #         self.coordinator.start_batch_chip_erase(
 #             enabled_probe_ids=enabled_ids,
 #             clock_freq=clock_freq,
@@ -541,7 +592,8 @@
 #     @Slot(int)
 #     def _on_batch_started(self, slot_count: int) -> None:
 #         self._append_log(
-#             f"[INFO] Parallel QThreads running across {slot_count} slots.")
+#             f"[INFO] Parallel QThreads running across {slot_count} slots."
+#         )
 
 #     @Slot(str, int)
 #     def _on_slot_progress(self, unique_id: str, percent: int) -> None:
@@ -549,7 +601,14 @@
 #             self.slot_cards[unique_id].update_progress(percent)
 
 #     @Slot(str, str, str, float, str)
-#     def _on_slot_status(self, unique_id: str, status_code: str, message: str, cycle_time: float, chip_uid: str) -> None:
+#     def _on_slot_status(
+#         self,
+#         unique_id: str,
+#         status_code: str,
+#         message: str,
+#         cycle_time: float,
+#         chip_uid: str,
+#     ) -> None:
 #         if unique_id not in self.slot_cards:
 #             return
 
@@ -561,7 +620,8 @@
 #             card.set_pass_state(cycle_time=cycle_time, uid_str=chip_uid)
 #             card.setProperty("status", "PASS")
 #             self._append_log(
-#                 f"[PASS] Slot [{unique_id[:8]}]: UID={chip_uid} ({cycle_time:.2f}s)")
+#                 f"[PASS] Slot [{unique_id[:8]}]: UID={chip_uid} ({cycle_time:.2f}s)"
+#             )
 #         elif status_code == "FAIL":
 #             card.set_fail_state(error_msg=message, cycle_time=cycle_time)
 #             card.setProperty("status", "FAIL")
@@ -571,24 +631,26 @@
 #         card.style().polish(card)
 
 #     @Slot(int, int, float)
-#     def _on_batch_completed(self, total_pass: int, total_fail: int, duration: float) -> None:
+#     def _on_batch_completed(
+#         self, total_pass: int, total_fail: int, duration: float
+#     ) -> None:
 #         self._set_action_buttons_enabled(True)
 
-#         self.btn_start_batch.setIcon(
-#             QIcon("assets/icons/.svg"))
+#         self.btn_start_batch.setIcon(QIcon())
 #         self.btn_start_batch.setText(" START BATCH PRODUCTION FLASH")
 
-#         self.btn_chip_erase.setIcon(
-#             QIcon("assets/icons/.svg"))
+#         self.btn_chip_erase.setIcon(QIcon())
 #         self.btn_chip_erase.setText(" FULL CHIP ERASE (ALL SLOTS)")
 
 #         self._append_log(
-#             f"[BATCH FINISHED] Total PASS: {total_pass} | Total FAIL: {total_fail} | Total Time: {duration:.2f}s")
+#             f"[BATCH FINISHED] Total PASS: {total_pass} | Total FAIL: {total_fail} | Total Time: {duration:.2f}s"
+#         )
 
 #     def _append_log(self, text: str) -> None:
 #         self.log_viewer.append(text)
 #         self.log_viewer.verticalScrollBar().setValue(
-#             self.log_viewer.verticalScrollBar().maximum())
+#             self.log_viewer.verticalScrollBar().maximum()
+#         )
 
 #     def shutdown_threads(self) -> None:
 #         """Safely terminates all active batch worker threads during application shutdown."""
@@ -821,7 +883,9 @@ class BatchProgrammerWidget(QWidget):
     @Slot(str)
     def set_mcu_target(self, target_name: str) -> None:
         """Dynamically update base address presets according to selected target MCU."""
+        print(f"[DEBUG-UI] Setting MCU Target to: '{target_name}'")
         self.current_mcu_target = target_name
+        self.coordinator.target_type = target_name
         self.combo_address.clear()
         presets = get_memory_presets(target_name)
         for label, addr in presets:
@@ -883,7 +947,6 @@ class BatchProgrammerWidget(QWidget):
         cfg_layout.addWidget(self.chk_verify)
 
         setup_layout.addLayout(cfg_layout)
-
         main_layout.addWidget(setup_box, stretch=0)
 
         # ----------------------------------------------------------------------
@@ -921,9 +984,7 @@ class BatchProgrammerWidget(QWidget):
         self.slots_grid.setSpacing(10)
 
         self.scroll_area.setWidget(self.slots_container)
-
         slots_main_layout.addWidget(self.scroll_area, stretch=1)
-
         main_layout.addWidget(slots_box, stretch=2)
 
         # ----------------------------------------------------------------------
@@ -944,7 +1005,6 @@ class BatchProgrammerWidget(QWidget):
 
         action_layout.addWidget(self.btn_start_batch, stretch=2)
         action_layout.addWidget(self.btn_chip_erase, stretch=1)
-
         main_layout.addLayout(action_layout)
 
         # Compact Log Display
@@ -965,47 +1025,42 @@ class BatchProgrammerWidget(QWidget):
         self.coordinator.batch_progress_signal.connect(self._on_slot_progress)
         self.coordinator.batch_slot_status_signal.connect(self._on_slot_status)
         self.coordinator.batch_completed_signal.connect(
-            self._on_batch_completed
-        )
+            self._on_batch_completed)
 
     @Slot()
     def scan_connected_probes(self) -> None:
         """Discovers active hardware probes and rebuilds slot cards in a responsive grid."""
+        print("[DEBUG-UI] Scanning for connected probes...")
         self._clear_slot_cards()
         probes: List[ProbeInfo] = ProbeManagerService.discover_connected_probes()
 
         if not probes:
             self.lbl_probe_count.setText(
-                "Active Probes: 0 (No B-Link devices found)"
-            )
+                "Active Probes: 0 (No B-Link devices found)")
             self.lbl_probe_count.setStyleSheet(
-                "font-weight: bold; color: #EF4444;"
-            )
+                "font-weight: bold; color: #EF4444;")
             self._append_log(
-                "[WARNING] No B-Link hardware probes detected on USB bus."
-            )
+                "[WARNING] No B-Link hardware probes detected on USB bus.")
             return
 
         self.lbl_probe_count.setText(f"Active Probes: {len(probes)} detected")
         self.lbl_probe_count.setStyleSheet(
-            "font-weight: bold; color: #10B981;"
-        )
+            "font-weight: bold; color: #10B981;")
 
         for idx, probe_info in enumerate(probes):
-            card = ProbeSlotCard(
-                probe_info=probe_info, parent=self.slots_container
-            )
-
+            card = ProbeSlotCard(probe_info=probe_info,
+                                 parent=self.slots_container)
             card.setObjectName("ProbeSlotCard")
             card.setProperty("status", "NORMAL")
 
             row, col = divmod(idx, 2)
             self.slots_grid.addWidget(card, row, col)
             self.slot_cards[probe_info.unique_id] = card
+            print(
+                f"[DEBUG-UI] Registered probe card: UID={probe_info.unique_id}")
 
         self._append_log(
-            f"[INFO] Enumerate complete. Displaying {len(probes)} probe slots."
-        )
+            f"[INFO] Enumerate complete. Displaying {len(probes)} probe slots.")
 
     def _clear_slot_cards(self) -> None:
         """Removes existing slot cards from UI grid."""
@@ -1025,11 +1080,9 @@ class BatchProgrammerWidget(QWidget):
         )
         if file_path:
             self.txt_filepath.setText(os.path.normpath(file_path))
-
             self.txt_filepath.setProperty("hasFile", True)
             self.txt_filepath.style().unpolish(self.txt_filepath)
             self.txt_filepath.style().polish(self.txt_filepath)
-
             self._append_log(f"[INFO] Selected firmware: {file_path}")
 
     def _parse_input_address(self, text: str) -> int:
@@ -1081,8 +1134,7 @@ class BatchProgrammerWidget(QWidget):
 
         try:
             base_addr = self._parse_input_address(
-                self.combo_address.currentText()
-            )
+                self.combo_address.currentText())
             clock_freq = self._parse_clock_freq()
         except ValueError as err:
             QMessageBox.critical(
@@ -1094,40 +1146,36 @@ class BatchProgrammerWidget(QWidget):
 
         for uid in enabled_ids:
             if uid in self.slot_cards:
-                self.slot_cards[uid].set_busy_state(
-                    "Waiting for flash thread spawn..."
-                )
-
                 card = self.slot_cards[uid]
+                card.set_busy_state("Waiting for flash thread spawn...")
                 card.setProperty("status", "BUSY")
                 card.style().unpolish(card)
                 card.style().polish(card)
 
         self._set_action_buttons_enabled(False)
-
         self.btn_start_batch.setIcon(QIcon(ICON_HOURGLASS))
         self.btn_start_batch.setText(" FLASHING IN PROGRESS...")
 
+        print(
+            f"[DEBUG-UI] Invoking batch flashing on slots: {enabled_ids}, Target: '{self.current_mcu_target}'")
         self._append_log(
             f"[BATCH FLASH START] Launching simultaneous programming on {len(enabled_ids)} targets (Target Mode: '{self.current_mcu_target}')..."
         )
 
-        # ارسال target_type به کئوردیناتور (اگر کئوردیناتور ورودی target_type بپذیرد)
-        kwargs = {
-            "enabled_probe_ids": enabled_ids,
-            "file_path": file_path,
-            "base_address": base_addr,
-            "clock_freq": clock_freq,
-            "connect_mode": self.combo_mode.currentText(),
-            "verify_enabled": self.chk_verify.isChecked(),
-        }
-        if hasattr(self.coordinator, "target_type"):
-            self.coordinator.target_type = self.current_mcu_target
-
-        self.coordinator.start_batch_flashing(**kwargs)
+        self.coordinator.target_type = self.current_mcu_target
+        self.coordinator.start_batch_flashing(
+            enabled_probe_ids=enabled_ids,
+            file_path=file_path,
+            base_address=base_addr,
+            clock_freq=clock_freq,
+            connect_mode=self.combo_mode.currentText(),
+            verify_enabled=self.chk_verify.isChecked(),
+        )
 
     def _start_batch_chip_erase(self) -> None:
         """Triggers simultaneous Full Chip Erase across all enabled slots."""
+        print(
+            f"[DEBUG-UI] btn_chip_erase clicked! Current Target: '{self.current_mcu_target}'")
         enabled_ids = self._get_enabled_probe_ids()
         if not enabled_ids:
             QMessageBox.warning(
@@ -1146,6 +1194,7 @@ class BatchProgrammerWidget(QWidget):
             QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
+            print("[DEBUG-UI] User cancelled Chip Erase.")
             return
 
         try:
@@ -1160,25 +1209,24 @@ class BatchProgrammerWidget(QWidget):
 
         for uid in enabled_ids:
             if uid in self.slot_cards:
-                self.slot_cards[uid].set_busy_state("Erasing target flash...")
-
                 card = self.slot_cards[uid]
+                card.set_busy_state("Erasing target flash...")
                 card.setProperty("status", "BUSY")
                 card.style().unpolish(card)
                 card.style().polish(card)
 
         self._set_action_buttons_enabled(False)
-
         self.btn_chip_erase.setIcon(QIcon(ICON_HOURGLASS))
         self.btn_chip_erase.setText(" ERASING IN PROGRESS...")
 
+        print(
+            f"[DEBUG-UI] Launching start_batch_chip_erase on {len(enabled_ids)} slots: {enabled_ids}")
         self._append_log(
-            f"[BATCH ERASE START] Launching simultaneous Full Chip Erase on {len(enabled_ids)} targets..."
+            f"[BATCH ERASE START] Launching simultaneous Full Chip Erase on {len(enabled_ids)} targets (Target: '{self.current_mcu_target}')..."
         )
 
-        if hasattr(self.coordinator, "target_type"):
-            self.coordinator.target_type = self.current_mcu_target
-
+        # تضمین ست بودن نوع تارگت در هماهنگ‌کننده
+        self.coordinator.target_type = self.current_mcu_target
         self.coordinator.start_batch_chip_erase(
             enabled_probe_ids=enabled_ids,
             clock_freq=clock_freq,
@@ -1187,9 +1235,10 @@ class BatchProgrammerWidget(QWidget):
 
     @Slot(int)
     def _on_batch_started(self, slot_count: int) -> None:
+        print(
+            f"[DEBUG-UI] _on_batch_started received: {slot_count} active slots.")
         self._append_log(
-            f"[INFO] Parallel QThreads running across {slot_count} slots."
-        )
+            f"[INFO] Parallel QThreads running across {slot_count} slots.")
 
     @Slot(str, int)
     def _on_slot_progress(self, unique_id: str, percent: int) -> None:
@@ -1205,6 +1254,8 @@ class BatchProgrammerWidget(QWidget):
         cycle_time: float,
         chip_uid: str,
     ) -> None:
+        print(
+            f"[DEBUG-UI] Status update: UID={unique_id[:8]} Code={status_code} Msg={message}")
         if unique_id not in self.slot_cards:
             return
 
@@ -1230,6 +1281,8 @@ class BatchProgrammerWidget(QWidget):
     def _on_batch_completed(
         self, total_pass: int, total_fail: int, duration: float
     ) -> None:
+        print(
+            f"[DEBUG-UI] Batch finished: PASS={total_pass}, FAIL={total_fail}, Time={duration:.2f}s")
         self._set_action_buttons_enabled(True)
 
         self.btn_start_batch.setIcon(QIcon())
